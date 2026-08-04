@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>net6.0;net7.0;net8.0;net9.0;net10.0</TargetFrameworks>
-    <RootNamespace>Kebechet.Blazor.TanStackVirtual</RootNamespace>
+    <RootNamespace>Kebechet.Blazor.TanStack.VirtualCore</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Collection expressions and other recent syntax are compile-time only, so the oldest TFM
@@ -15,10 +15,10 @@
   <PropertyGroup Label="NugetProperties">
     <Authors>Kebechet</Authors>
     <IsPackable>true</IsPackable>
-    <PackageId>Kebechet.Blazor.TanStackVirtual</PackageId>
+    <PackageId>Kebechet.Blazor.TanStack.VirtualCore</PackageId>
     <Description>Blazor virtualization for variable-height rows, powered by @tanstack/virtual-core. Measures every row exactly instead of assuming a fixed height, and Blazor keeps ownership of rendering. Ships the library and auto-registers it - no npm or manual script tags.</Description>
-    <RepositoryUrl>https://github.com/Kebechet/Blazor.TanStackVirtual</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/Kebechet/Blazor.TanStackVirtual</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Kebechet/Blazor.TanStack.VirtualCore</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Kebechet/Blazor.TanStack.VirtualCore</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryType>git</RepositoryType>
@@ -41,7 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Blazor.TanStackVirtual.Tests" />
+    <InternalsVisibleTo Include="Blazor.TanStack.VirtualCore.Tests" />
   </ItemGroup>
 
   <ItemGroup>

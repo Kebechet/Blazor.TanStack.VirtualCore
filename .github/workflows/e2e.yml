@@ -11,7 +11,7 @@ permissions:
 env:
   DOTNET_VERSION: '10.0.x'
   BUILD_CONFIGURATION: Release
-  E2E_PROJECT: tests/Blazor.TanStackVirtual.E2E/Blazor.TanStackVirtual.E2E.csproj
+  E2E_PROJECT: tests/Blazor.TanStack.VirtualCore.E2E/Blazor.TanStack.VirtualCore.E2E.csproj
 
 jobs:
   virtualization-tests:
@@ -29,7 +29,7 @@ jobs:
     - name: Restore e2e suite and demo
       run: |
         dotnet restore ${{ env.E2E_PROJECT }}
-        dotnet restore demo/Blazor.TanStackVirtual.Demo.csproj
+        dotnet restore demo/Blazor.TanStack.VirtualCore.Demo.csproj
 
     # The fixture launches the runner's preinstalled Chrome via Playwright's `chrome` channel,
     # so there is no browser download step.

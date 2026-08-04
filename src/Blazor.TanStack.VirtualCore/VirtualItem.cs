@@ -1,4 +1,4 @@
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>
 /// One row's computed placement, as reported by the virtualizer. Deserialized from JS interop, so

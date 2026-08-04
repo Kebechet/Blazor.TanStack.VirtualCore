@@ -1,12 +1,12 @@
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/kebechet)
 
-# Blazor.TanStackVirtual
-[![NuGet Version](https://img.shields.io/nuget/v/Kebechet.Blazor.TanStackVirtual)](https://www.nuget.org/packages/Kebechet.Blazor.TanStackVirtual/)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/Kebechet.Blazor.TanStackVirtual)](https://www.nuget.org/packages/Kebechet.Blazor.TanStackVirtual/)
-[![Build](https://github.com/Kebechet/Blazor.TanStackVirtual/actions/workflows/build.yml/badge.svg)](https://github.com/Kebechet/Blazor.TanStackVirtual/actions/workflows/build.yml)
-[![codecov](https://codecov.io/gh/Kebechet/Blazor.TanStackVirtual/graph/badge.svg)](https://codecov.io/gh/Kebechet/Blazor.TanStackVirtual)
-[![Storybook](https://img.shields.io/badge/storybook-live%20demo-ff4785)](https://kebechet.github.io/Blazor.TanStackVirtual/)
-![Last updated](https://img.shields.io/github/last-commit/Kebechet/Blazor.TanStackVirtual/main?label=last%20updated)
+# Blazor.TanStack.VirtualCore
+[![NuGet Version](https://img.shields.io/nuget/v/Kebechet.Blazor.TanStack.VirtualCore)](https://www.nuget.org/packages/Kebechet.Blazor.TanStack.VirtualCore/)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/Kebechet.Blazor.TanStack.VirtualCore)](https://www.nuget.org/packages/Kebechet.Blazor.TanStack.VirtualCore/)
+[![Build](https://github.com/Kebechet/Blazor.TanStack.VirtualCore/actions/workflows/build.yml/badge.svg)](https://github.com/Kebechet/Blazor.TanStack.VirtualCore/actions/workflows/build.yml)
+[![codecov](https://codecov.io/gh/Kebechet/Blazor.TanStack.VirtualCore/graph/badge.svg)](https://codecov.io/gh/Kebechet/Blazor.TanStack.VirtualCore)
+[![Storybook](https://img.shields.io/badge/storybook-live%20demo-ff4785)](https://kebechet.github.io/Blazor.TanStack.VirtualCore/)
+![Last updated](https://img.shields.io/github/last-commit/Kebechet/Blazor.TanStack.VirtualCore/main?label=last%20updated)
 [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/samuel_sidor.svg?style=social&label=Follow%20samuel_sidor)](https://x.com/samuel_sidor)
 
 Virtualization for Blazor lists whose items are **genuinely different sizes**, powered by [@tanstack/virtual-core](https://github.com/TanStack/virtual).
@@ -15,7 +15,7 @@ Every item is measured individually. Blazor keeps ownership of rendering - the J
 
 The virtual-core build is vendored and pinned inside the package, so there is no npm step, no CDN, and no `<script>` tag.
 
-**[Live storybook](https://kebechet.github.io/Blazor.TanStackVirtual/)** - interactive stories for every feature.
+**[Live storybook](https://kebechet.github.io/Blazor.TanStack.VirtualCore/)** - interactive stories for every feature.
 
 ## Why not the built-in `Virtualize`?
 
@@ -34,7 +34,7 @@ If your rows differ by a little, take the built-in one. If a 60px row sits next 
 ## Installation
 
 ```bash
-dotnet add package Kebechet.Blazor.TanStackVirtual
+dotnet add package Kebechet.Blazor.TanStack.VirtualCore
 ```
 
 No service registration is needed - the component imports its own interop module.
@@ -44,7 +44,7 @@ No service registration is needed - the component imports its own interop module
 The component fills its nearest scrollable ancestor, which it finds by walking up for a computed `overflow-y` of `auto` or `scroll`, falling back to the document scroller.
 
 ```razor
-@using Kebechet.Blazor.TanStackVirtual
+@using Kebechet.Blazor.TanStack.VirtualCore
 
 <div style="height: 100vh; overflow-y: auto;">
     <AdaptiveVirtualize TItem="Exercise"

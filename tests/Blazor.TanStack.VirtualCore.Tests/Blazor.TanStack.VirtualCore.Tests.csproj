@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>Kebechet.Blazor.TanStackVirtual.Tests</RootNamespace>
+    <RootNamespace>Kebechet.Blazor.TanStack.VirtualCore.Tests</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Blazor.TanStackVirtual\Blazor.TanStackVirtual.csproj" />
+    <ProjectReference Include="..\..\src\Blazor.TanStack.VirtualCore\Blazor.TanStack.VirtualCore.csproj" />
   </ItemGroup>
 
 </Project>

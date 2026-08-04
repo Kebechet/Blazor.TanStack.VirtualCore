@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Blazor.TanStack.VirtualCore\Blazor.TanStack.VirtualCore.csproj" />
+  <Project Path="..\tests\Blazor.TanStack.VirtualCore.Tests\Blazor.TanStack.VirtualCore.Tests.csproj" />
+</Solution>

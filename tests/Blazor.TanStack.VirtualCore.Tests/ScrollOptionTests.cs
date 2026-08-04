@@ -1,7 +1,7 @@
 using Shouldly;
 using Xunit;
 
-namespace Kebechet.Blazor.TanStackVirtual.Tests;
+namespace Kebechet.Blazor.TanStack.VirtualCore.Tests;
 
 public class ScrollOptionTests
 {

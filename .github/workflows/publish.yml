@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_PATH: src/Blazor.TanStackVirtual/Blazor.TanStackVirtual.csproj
-  SOLUTION_PATH: src/Blazor.TanStackVirtual.slnx
-  PACKAGE_NAME: Kebechet.Blazor.TanStackVirtual
+  PROJECT_PATH: src/Blazor.TanStack.VirtualCore/Blazor.TanStack.VirtualCore.csproj
+  SOLUTION_PATH: src/Blazor.TanStack.VirtualCore.slnx
+  PACKAGE_NAME: Kebechet.Blazor.TanStack.VirtualCore
   DOTNET_VERSION: '10.0.x'
   BUILD_CONFIGURATION: Release
   OUTPUT_PATH: ./nupkg
@@ -62,7 +62,7 @@ jobs:
           echo "$CONTENTS"
           echo "$CONTENTS" | grep -q "staticwebassets/tanstack-virtual-core.js"     || { echo "::error::vendored virtual-core missing from package"; exit 1; }
           echo "$CONTENTS" | grep -q "staticwebassets/adaptive-virtualize-interop.js"   || { echo "::error::interop module missing from package"; exit 1; }
-          echo "$CONTENTS" | grep -q "build/Kebechet.Blazor.TanStackVirtual.props"  || { echo "::error::build props missing from package"; exit 1; }
+          echo "$CONTENTS" | grep -q "build/Kebechet.Blazor.TanStack.VirtualCore.props"  || { echo "::error::build props missing from package"; exit 1; }
 
       - name: Publish to NuGet
         run: dotnet nuget push ${{ env.OUTPUT_PATH }}/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source ${{ env.NUGET_SOURCE }} --skip-duplicate
@@ -85,6 +85,6 @@ jobs:
 
             ### Links
             - [NuGet Package](https://www.nuget.org/packages/${{ env.PACKAGE_NAME }}/${{ steps.version.outputs.version }})
-            - [GitHub](https://github.com/Kebechet/Blazor.TanStackVirtual)
+            - [GitHub](https://github.com/Kebechet/Blazor.TanStack.VirtualCore)
           files: ${{ env.OUTPUT_PATH }}/*.nupkg
           generate_release_notes: true

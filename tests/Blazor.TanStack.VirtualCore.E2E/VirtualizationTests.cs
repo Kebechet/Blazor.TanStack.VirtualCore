@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 /// <summary>
 /// Virtualization is only observable at runtime: how many elements exist, where the browser put

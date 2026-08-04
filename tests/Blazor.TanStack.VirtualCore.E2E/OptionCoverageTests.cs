@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 /// <summary>
 /// One test per option that changes observable layout or behaviour. An option that serializes

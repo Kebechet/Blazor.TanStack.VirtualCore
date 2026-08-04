@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
 
 env:
-  DEMO_PATH: demo/Blazor.TanStackVirtual.Demo.csproj
+  DEMO_PATH: demo/Blazor.TanStack.VirtualCore.Demo.csproj
   DOTNET_VERSION: '10.0.x'
   BUILD_CONFIGURATION: Release
   # Site is served from https://<owner>.github.io/<repo>/, so the app's base href must match.
-  BASE_HREF: /Blazor.TanStackVirtual/
+  BASE_HREF: /Blazor.TanStack.VirtualCore/
 
 # Only one deployment at a time; a newer push supersedes an in-flight one.
 concurrency:

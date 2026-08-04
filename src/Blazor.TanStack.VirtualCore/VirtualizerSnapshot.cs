@@ -1,4 +1,4 @@
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>
 /// A read of the virtualizer's live scroll state. Deserialized from JS interop, so the property

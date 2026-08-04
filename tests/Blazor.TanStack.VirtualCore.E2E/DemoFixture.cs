@@ -7,7 +7,7 @@ using Xunit;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 [CollectionDefinition(Name)]
 public sealed class DemoCollectionDefinition : ICollectionFixture<DemoFixture>
@@ -53,7 +53,7 @@ public sealed class DemoFixture : IAsyncLifetime
         };
         startInfo.ArgumentList.Add("run");
         startInfo.ArgumentList.Add("--project");
-        startInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "demo", "Blazor.TanStackVirtual.Demo.csproj"));
+        startInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "demo", "Blazor.TanStack.VirtualCore.Demo.csproj"));
         startInfo.ArgumentList.Add("--configuration");
         startInfo.ArgumentList.Add("Release");
         startInfo.ArgumentList.Add("--no-launch-profile");
@@ -294,8 +294,8 @@ public sealed class DemoFixture : IAsyncLifetime
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "demo", "Blazor.TanStackVirtual.Demo.csproj")) &&
-                File.Exists(Path.Combine(directory.FullName, "src", "Blazor.TanStackVirtual.slnx")))
+            if (File.Exists(Path.Combine(directory.FullName, "demo", "Blazor.TanStack.VirtualCore.Demo.csproj")) &&
+                File.Exists(Path.Combine(directory.FullName, "src", "Blazor.TanStack.VirtualCore.slnx")))
             {
                 return directory.FullName;
             }
@@ -303,6 +303,6 @@ public sealed class DemoFixture : IAsyncLifetime
             directory = directory.Parent;
         }
 
-        throw new DirectoryNotFoundException("Could not locate the Blazor.TanStackVirtual repository root.");
+        throw new DirectoryNotFoundException("Could not locate the Blazor.TanStack.VirtualCore repository root.");
     }
 }

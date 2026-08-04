@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>
 /// Every <c>VirtualizerOptions</c> member that a consumer can meaningfully set. Each is nullable:

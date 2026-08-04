@@ -1,4 +1,4 @@
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>Where the target row should end up within the viewport.</summary>
 public enum ScrollAlignment : byte

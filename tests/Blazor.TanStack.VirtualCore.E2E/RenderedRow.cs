@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 /// <summary>
 /// One item as the browser actually rendered it. Offsets are read back from the computed transform

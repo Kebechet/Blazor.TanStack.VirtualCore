@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 /// <summary>
 /// One test per public method that reaches virtual-core. Each asserts against what the browser did,

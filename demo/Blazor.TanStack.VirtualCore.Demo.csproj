@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\Blazor.TanStackVirtual\Blazor.TanStackVirtual.csproj" />
+    <ProjectReference Include="..\src\Blazor.TanStack.VirtualCore\Blazor.TanStack.VirtualCore.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>
 /// Virtualization that delegates scroll math and measurement to <c>@tanstack/virtual-core</c>, while
@@ -69,7 +69,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     /// </remarks>
     [Parameter] public Func<Task>? OnLayoutMeasured { get; set; }
 
-    private const string _modulePath = "./_content/Kebechet.Blazor.TanStackVirtual/adaptive-virtualize-interop.js";
+    private const string _modulePath = "./_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js";
 
     private ElementReference _rootElement;
     private DotNetObjectReference<AdaptiveVirtualize<TItem>>? _selfRef;

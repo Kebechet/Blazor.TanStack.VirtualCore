@@ -1,4 +1,4 @@
-namespace Kebechet.Blazor.TanStackVirtual;
+namespace Kebechet.Blazor.TanStack.VirtualCore;
 
 /// <summary>
 /// The per-row facts the JS side needs to answer the virtualizer's <c>getItemKey</c> and

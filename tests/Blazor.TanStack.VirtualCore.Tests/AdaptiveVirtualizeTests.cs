@@ -5,7 +5,7 @@ using Shouldly;
 using Xunit;
 using TestContext = Bunit.TestContext;
 
-namespace Kebechet.Blazor.TanStackVirtual.Tests;
+namespace Kebechet.Blazor.TanStack.VirtualCore.Tests;
 
 public class AdaptiveVirtualizeTests
 {

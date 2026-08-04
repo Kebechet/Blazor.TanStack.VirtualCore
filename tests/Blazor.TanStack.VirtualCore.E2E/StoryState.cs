@@ -2,7 +2,7 @@ using System.Text.Json;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Blazor.TanStackVirtual.E2E;
+namespace Blazor.TanStack.VirtualCore.E2E;
 
 /// <summary>
 /// Reads the JSON a story's state panel renders.

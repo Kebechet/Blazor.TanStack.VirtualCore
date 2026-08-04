@@ -1,4 +1,4 @@
-namespace Blazor.TanStackVirtual.Demo.Stories;
+namespace Blazor.TanStack.VirtualCore.Demo.Stories;
 
 /// <summary>
 /// One row in a demo list. <see cref="EstimatedHeight"/> is what the story feeds to
