@@ -1,0 +1,157 @@
+<div class="demo-stack">
+    @if (!Hint.IsNullOrEmpty())
+    {
+        <p class="demo-hint">@Hint</p>
+    }
+
+    <div class="demo-actions">
+        <button data-testid="@($"{TestId}-scroll-target")" @onclick="ScrollToTarget">
+            Scroll to @ScrollTargetIndex
+        </button>
+        <button data-testid="@($"{TestId}-scroll-top")" @onclick="ScrollToTop">Scroll to top</button>
+    </div>
+
+    <div class="viewport" data-testid="@($"{TestId}-viewport")">
+        <AdaptiveVirtualize @ref="_virtualize"
+                            TItem="DemoRow"
+                            Items="_rows"
+                            ItemKeyExtractor="@(row => row.Key)"
+                            ItemSizeEstimator="@(row => row.EstimatedHeight)"
+                            Overscan="3"
+                            OnLayoutMeasured="OnLayoutMeasured">
+            <ItemContent>
+                <div class="@context.CssClass" @onclick="() => ToggleGroup(context)">
+                    <span class="row-title">@context.Title</span>
+                    @if (!context.Body.IsNullOrEmpty())
+                    {
+                        <span class="row-body">@context.Body</span>
+                    }
+                </div>
+            </ItemContent>
+        </AdaptiveVirtualize>
+    </div>
+
+    <VirtualizerState TestId="@($"{TestId}-state")" Json="@_stateJson" />
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string TestId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public ListShape Shape { get; set; } = ListShape.Uniform;
+
+    [Parameter]
+    public int ItemCount { get; set; } = 10_000;
+
+    [Parameter]
+    public int ScrollTargetIndex { get; set; } = 5_000;
+
+    private AdaptiveVirtualize<DemoRow>? _virtualize;
+    private IReadOnlyList<DemoRow> _rows = [];
+    private readonly HashSet<string> _expandedKeys = [];
+    private int _measuredPasses;
+    private string _lastAction = "none";
+    private string _stateJson = "{}";
+
+    protected override void OnInitialized()
+    {
+        _rows = BuildRows();
+        WriteState();
+    }
+
+    private IReadOnlyList<DemoRow> BuildRows()
+    {
+        return Shape switch
+        {
+            ListShape.Uniform => DemoRow.BuildUniform(ItemCount),
+            ListShape.Variable => DemoRow.BuildVariable(ItemCount),
+            ListShape.Expandable => DemoRow.BuildExpandable(ItemCount, _expandedKeys),
+            _ => throw new NotImplementedException($"Unhandled {nameof(ListShape)} value: {Shape}")
+        };
+    }
+
+    private async Task ToggleGroup(DemoRow row)
+    {
+        if (Shape != ListShape.Expandable || !row.IsGroup)
+        {
+            return;
+        }
+
+        if (!_expandedKeys.Remove(row.Key))
+        {
+            _expandedKeys.Add(row.Key);
+        }
+
+        // The group row's own height changes with the chevron state while its key stays the same, so
+        // the preserved measurement is now stale. Without this the row keeps its old height until
+        // something else forces a re-measure, and the inserted children land overlapping it.
+        if (_virtualize is not null)
+        {
+            await _virtualize.InvalidateItemSize(row.Key);
+        }
+
+        _rows = BuildRows();
+        _lastAction = $"toggle:{row.Key}";
+        WriteState();
+    }
+
+    private async Task ScrollToTarget()
+    {
+        if (_virtualize is null)
+        {
+            return;
+        }
+
+        await _virtualize.ScrollToIndex(ScrollTargetIndex, ScrollAlignment.Start, ScrollBehavior.Instant);
+        _lastAction = $"scrollToIndex:{ScrollTargetIndex}";
+        WriteState();
+    }
+
+    private async Task ScrollToTop()
+    {
+        if (_virtualize is null)
+        {
+            return;
+        }
+
+        await _virtualize.ScrollToTop();
+        _lastAction = "scrollToTop";
+        WriteState();
+    }
+
+    private Task OnLayoutMeasured()
+    {
+        _measuredPasses++;
+        WriteState();
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void WriteState()
+    {
+        _stateJson = JsonSerializer.Serialize(
+            new Dictionary<string, object?>
+            {
+                ["itemCount"] = _rows.Count,
+                ["shape"] = Shape.ToString(),
+                ["expandedCount"] = _expandedKeys.Count,
+                ["measuredPasses"] = _measuredPasses,
+                ["lastAction"] = _lastAction,
+            },
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    public enum ListShape
+    {
+        /// <summary>Every row the same height - the case the framework's Virtualize already handles.</summary>
+        Uniform,
+        /// <summary>Row heights vary by a factor of roughly five, which is where an averaged size falls apart.</summary>
+        Variable,
+        /// <summary>Group rows that insert children in place, exercising InvalidateItemSize.</summary>
+        Expandable
+    }
+}

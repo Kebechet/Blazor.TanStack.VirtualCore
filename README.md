@@ -5,6 +5,7 @@
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Kebechet.Blazor.TanStackVirtual)](https://www.nuget.org/packages/Kebechet.Blazor.TanStackVirtual/)
 [![Build](https://github.com/Kebechet/Blazor.TanStackVirtual/actions/workflows/build.yml/badge.svg)](https://github.com/Kebechet/Blazor.TanStackVirtual/actions/workflows/build.yml)
 [![codecov](https://codecov.io/gh/Kebechet/Blazor.TanStackVirtual/graph/badge.svg)](https://codecov.io/gh/Kebechet/Blazor.TanStackVirtual)
+[![Storybook](https://img.shields.io/badge/storybook-live%20demo-ff4785)](https://kebechet.github.io/Blazor.TanStackVirtual/)
 ![Last updated](https://img.shields.io/github/last-commit/Kebechet/Blazor.TanStackVirtual/main?label=last%20updated)
 [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/samuel_sidor.svg?style=social&label=Follow%20samuel_sidor)](https://x.com/samuel_sidor)
 
@@ -13,6 +14,8 @@ Virtualization for Blazor lists whose rows are **genuinely different heights**, 
 Every row is measured individually. Blazor keeps ownership of rendering - the JS side only answers "which indices are visible, and at what offsets", and the component renders that slice.
 
 The virtual-core build is vendored and pinned inside the package, so there is no npm step, no CDN, and no `<script>` tag.
+
+**[Live storybook](https://kebechet.github.io/Blazor.TanStackVirtual/)** - interactive stories for every feature.
 
 ## Why not the built-in `Virtualize`?
 
@@ -117,9 +120,13 @@ This is a real coupling: a virtual-core release could change them without it bei
 | | |
 |---|---|
 | Version | @tanstack/virtual-core 3.17.7 |
-| File | `wwwroot/tanstack-virtual-core.esm.js` |
-| Source | npm tarball `virtual-core-3.17.7.tgz`, `package/dist/esm/index.js` |
-| SHA-256 | `255d29a9969a23e9867a11fb323ccac5a97c95bb765e1f3b68e9715dd12362bd` |
+| File | `wwwroot/tanstack-virtual-core.js` |
+| Source | jsDelivr rollup bundle of npm `@tanstack/virtual-core@3.17.7` (`+esm`) |
+| SHA-256 | `fb7a4e29d452791c08522862d74b292418f2abdedbc52f46cf347a8bae9244e1` |
+
+⚠️ **Deliberately the bundled build, not the npm tarball's `dist/esm/index.js`.**
+
+That file is not self-contained - it imports `./lazy-measurements.js` and `./utils.js` as siblings. Vendoring it alone gives a module that fetches fine and then fails to evaluate, and Blazor's fingerprinted import map turns the missing sibling into a confusing `Failed to fetch dynamically imported module` naming the *outer* module. The jsDelivr bundle is a single self-contained ESM file built from that same npm release, with the source stated in its own header. Its private-API surface (`_willUpdate`, `_didMount`, `itemSizeCache`, `itemSizeCacheVersion`) is re-verified on every bump.
 
 ## License
 

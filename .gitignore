@@ -483,3 +483,8 @@ $RECYCLE.BIN/
 
 # Claude Code
 .claude/settings.local.json
+
+# Re-include the browser test suite. The "Visual Studio Trace Files" rule above (*.e2e) also
+# matches the E2E project DIRECTORY case-insensitively on Windows, which silently excludes the
+# whole suite - the tests keep passing locally and simply never get committed.
+!*.E2E/

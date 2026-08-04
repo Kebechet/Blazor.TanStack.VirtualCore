@@ -1,0 +1,15 @@
+@* The browser suite reads this panel to assert what the component actually rendered - how many
+   rows exist in the DOM versus how many items the list holds is the whole claim of virtualization,
+   and it is only observable at runtime. *@
+<section class="demo-model" aria-label="Virtualizer state">
+    <h3>Virtualizer state</h3>
+    <pre data-testid="@TestId">@Json</pre>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Json { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string TestId { get; set; } = string.Empty;
+}

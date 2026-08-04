@@ -60,7 +60,7 @@ jobs:
           PKG=$(find ${{ env.OUTPUT_PATH }} -name '*.nupkg' | head -1)
           CONTENTS=$(unzip -l "$PKG")
           echo "$CONTENTS"
-          echo "$CONTENTS" | grep -q "staticwebassets/tanstack-virtual-core.esm.js"     || { echo "::error::vendored virtual-core missing from package"; exit 1; }
+          echo "$CONTENTS" | grep -q "staticwebassets/tanstack-virtual-core.js"     || { echo "::error::vendored virtual-core missing from package"; exit 1; }
           echo "$CONTENTS" | grep -q "staticwebassets/adaptive-virtualize-interop.js"   || { echo "::error::interop module missing from package"; exit 1; }
           echo "$CONTENTS" | grep -q "build/Kebechet.Blazor.TanStackVirtual.props"  || { echo "::error::build props missing from package"; exit 1; }
 

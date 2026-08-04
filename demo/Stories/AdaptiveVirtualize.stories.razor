@@ -1,0 +1,68 @@
+@attribute [Stories("Components/AdaptiveVirtualize")]
+
+<Stories TComponent="VirtualListPlayground">
+
+    <Story Name="Ten thousand rows">
+        <Description>
+            Ten thousand items, of which only the visible window plus <code>Overscan</code> exists in
+            the DOM at any moment. Scroll and watch the row numbers climb while the element count
+            stays flat - that constant count is the whole point.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="uniform"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="10000"
+                                   ScrollTargetIndex="5000"
+                                   Hint="Only a couple of dozen row elements are ever in the DOM, whichever part of the list you are looking at." />
+        </Template>
+    </Story>
+
+    <Story Name="Variable heights">
+        <Description>
+            Row bodies cycle through 1, 8, 25 and 3 words, so heights vary by roughly five times.
+            Every row is measured individually and its size cached against its key. This is the case
+            a single <code>ItemSize</code> - or a running average - cannot place correctly: short rows
+            end up too far apart and tall ones overlap.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="variable"
+                                   Shape="VirtualListPlayground.ListShape.Variable"
+                                   ItemCount="5000"
+                                   ScrollTargetIndex="2500"
+                                   Hint="Every row is deliberately given the same 70px estimate, so the measurement pass has visible work to do." />
+        </Template>
+    </Story>
+
+    <Story Name="Expand and collapse">
+        <Description>
+            Clicking a group inserts three children in place. The group row's own height changes while
+            its key stays the same, so its cached measurement is stale - which is what
+            <code>InvalidateItemSize(key)</code> is for. Without it the group keeps its old height and
+            the children render overlapping its bottom edge.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="expandable"
+                                   Shape="VirtualListPlayground.ListShape.Expandable"
+                                   ItemCount="500"
+                                   ScrollTargetIndex="100"
+                                   Hint="Click any group row. Measurements for every other row survive the item-set change - only the toggled group is re-measured." />
+        </Template>
+    </Story>
+
+    <Story Name="Scroll to index">
+        <Description>
+            <code>ScrollToIndex</code> takes a <code>ScrollAlignment</code> and a
+            <code>ScrollBehavior</code>. With variable heights this is only correct because the
+            virtualizer knows each row's real size - an estimate-based offset would land near the
+            target rather than on it.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="scroll"
+                                   Shape="VirtualListPlayground.ListShape.Variable"
+                                   ItemCount="20000"
+                                   ScrollTargetIndex="12345"
+                                   Hint="Jump to row 12345 in a 20,000-row list of mixed heights, then back to the top." />
+        </Template>
+    </Story>
+
+</Stories>

@@ -1,0 +1,37 @@
+name: Real browser virtualization
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  BUILD_CONFIGURATION: Release
+  E2E_PROJECT: tests/Blazor.TanStackVirtual.E2E/Blazor.TanStackVirtual.E2E.csproj
+
+jobs:
+  virtualization-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore e2e suite and demo
+      run: |
+        dotnet restore ${{ env.E2E_PROJECT }}
+        dotnet restore demo/Blazor.TanStackVirtual.Demo.csproj
+
+    # The fixture launches the runner's preinstalled Chrome via Playwright's `chrome` channel,
+    # so there is no browser download step.
+    - name: Run real Chrome virtualization tests
+      run: dotnet test ${{ env.E2E_PROJECT }} --no-restore --configuration ${{ env.BUILD_CONFIGURATION }}

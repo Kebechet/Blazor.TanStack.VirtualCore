@@ -8,7 +8,7 @@ import {
 	observeElementRect,
 	elementScroll,
 	measureElement,
-} from './tanstack-virtual-core.esm.js';
+} from './tanstack-virtual-core.js';
 
 export function create(rootElement, dotNetRef, initialDescriptors, overscan, estimatedItemSize) {
 	return new AdaptiveVirtualizeInstance(rootElement, dotNetRef, initialDescriptors, overscan, estimatedItemSize);

@@ -1,0 +1,106 @@
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 16px;
+}
+
+.demo-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.demo-hint {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+    max-width: 70ch;
+}
+
+.demo-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+button {
+    font: inherit;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid #c9d2db;
+    background: #fff;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #f2f5f8;
+}
+
+/* The scroll container the component walks up to find. Its overflow-y is what makes it the
+   scroller rather than the document, which is exactly the lookup being demonstrated. */
+.viewport {
+    height: 420px;
+    width: 460px;
+    overflow-y: auto;
+    border: 1px solid #d8dee6;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.row {
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-bottom: 1px solid #eef1f5;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.row-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.row-body {
+    font-size: 13px;
+    color: #5a6b7c;
+    line-height: 1.45;
+}
+
+.row-tall {
+    background: #fffaf0;
+}
+
+.row-group {
+    background: #f3f7ff;
+    cursor: pointer;
+}
+
+.row-child {
+    background: #fbfdff;
+    padding-left: 34px;
+}
+
+.demo-model {
+    border: 1px solid #e2e8ee;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: #fbfcfd;
+    min-width: 440px;
+}
+
+.demo-model h3 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #66788a;
+}
+
+.demo-model pre {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
