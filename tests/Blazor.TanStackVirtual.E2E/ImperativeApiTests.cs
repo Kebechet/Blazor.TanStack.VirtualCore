@@ -159,15 +159,24 @@ public sealed class ImperativeApiTests
 
         // Act
         await canvas.GetByTestId("follow-append").ClickAsync();
+        // The follow is scheduled by setOptions into pendingScrollAnchor and only executed by
+        // _willUpdate - which the interop must call after an item-set change. The first version of
+        // this test asserted only that the item count grew, which passes even when the viewport is
+        // stranded behind the appended rows.
         var state = await StoryState.WaitForAsync(
             canvas,
             "follow-state",
-            x => StoryState.Int(x, "itemCount") > 300,
-            "the appended items to arrive");
+            x => StoryState.Int(x, "itemCount") >= 310 &&
+                x.TryGetProperty("endIndex", out var endIndex) &&
+                endIndex.ValueKind != System.Text.Json.JsonValueKind.Null &&
+                endIndex.GetInt32() >= 309,
+            "the viewport to follow the appended items to the new end");
 
         // Assert
-        // The claim is that appending did not strand the viewport behind the new items.
-        Assert.True(StoryState.Int(state, "itemCount") >= 310);
+        // The rendered window must now contain the LAST appended item - the viewport followed.
+        Assert.True(StoryState.Int(state, "endIndex") >= 309, $"Viewport did not follow. State: {state}");
+        var rows = await _fixture.ReadRenderedRowsAsync();
+        Assert.Contains(rows, row => row.Index == 309);
         _fixture.AssertNoJsErrors();
     }
 }

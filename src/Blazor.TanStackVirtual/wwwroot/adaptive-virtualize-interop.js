@@ -295,6 +295,14 @@ class AdaptiveVirtualizeInstance {
 			this.virtualizer.itemSizeCacheVersion++;
 		}
 
+		// _willUpdate is also the CONSUMER of pendingScrollAnchor, which setOptions fills when
+		// anchorTo / followOnAppend react to the count and edge-key change above - the follow is
+		// only scheduled there, and _willUpdate is where scrollToEnd actually runs. Upstream's
+		// framework adapters call _willUpdate on every render; without this call a chat-style list
+		// schedules the follow and silently drops it, staying put while items append below.
+		// Called after the cache restore so the scroll target is computed from real measurements.
+		this.virtualizer._willUpdate();
+
 		this.notifyChange();
 	}
 

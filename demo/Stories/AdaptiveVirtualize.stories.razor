@@ -141,9 +141,12 @@
 
     <Story Name="Disabled">
         <Description>
-            <code>IsEnabled = false</code> suspends the virtualizer without unmounting it: no
-            measuring, no scroll observation, and the rendered window freezes where it was. Useful
-            while a panel is hidden, so an off-screen list stops paying for scroll work.
+            <code>IsEnabled = false</code> disables scroll observation and <strong>resets</strong>
+            the virtualizer - upstream empties the rendered window and clears its measurement caches,
+            so the items disappear. That is virtual-core's documented behaviour, not a freeze.
+            Re-enabling re-observes, re-measures and brings the items back at the preserved scroll
+            position. Useful while a panel is hidden, so an off-screen list stops paying for any
+            scroll or measurement work at all.
         </Description>
         <Template>
             <VirtualListPlayground TestId="disabled"
@@ -151,7 +154,7 @@
                                    ItemCount="1000"
                                    ScrollTargetIndex="500"
                                    Options="_disabledOptions"
-                                   Hint="IsEnabled suspends the virtualizer without unmounting it - for an off-screen panel that should stop paying for scroll work. Press Disable, scroll (nothing reacts), then Enable to resume where you were." />
+                                   Hint="IsEnabled = false disables scroll observation and RESETS the virtualizer - the items disappear because upstream empties the window and clears its caches (documented behaviour, not a freeze). Press Disable and the list empties; press Enable and it comes back at the same scroll position." />
         </Template>
     </Story>
 

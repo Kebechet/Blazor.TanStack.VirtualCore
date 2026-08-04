@@ -117,8 +117,11 @@ public sealed class VirtualizeOptions
     public bool? IsRtl { get; set; }
 
     /// <summary>
-    /// Suspends the virtualizer without unmounting it. While false, no measuring or scroll
-    /// observation happens and the rendered window stays as it was.
+    /// While false, no measuring or scroll observation happens, and upstream <b>resets</b> the
+    /// virtualizer: it empties the
+    /// rendered window and clears its measurement caches, so every item unmounts - a reset, not a
+    /// freeze. Setting it back to true re-observes, re-measures and re-renders at the preserved
+    /// scroll position.
     /// </summary>
     [JsonPropertyName("enabled")]
     public bool? IsEnabled { get; set; }

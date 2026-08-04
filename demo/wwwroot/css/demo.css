@@ -127,7 +127,12 @@ button:hover {
     background: #fff;
 }
 
-/* The window-scroller story deliberately has no scroll container of its own. */
+/* The window-scroller story deliberately has no scroll container of its own - but it still needs
+   its own surface: the story canvas background is theme-dependent (dark in the storybook shell's
+   dark mode), and rows without a backdrop render dark-on-dark. */
 .viewport-window {
     width: 460px;
+    background: #fff;
+    border: 1px solid #d8dee6;
+    border-radius: 12px;
 }

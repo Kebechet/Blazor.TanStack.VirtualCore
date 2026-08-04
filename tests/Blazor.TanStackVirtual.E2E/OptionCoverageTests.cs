@@ -122,32 +122,36 @@ public sealed class OptionCoverageTests
     }
 
     [Fact]
-    public async Task IsEnabledFalse_FreezesTheRenderedWindowOnScroll()
+    public async Task IsEnabledFalse_ResetsTheWindow_AndReEnablingRestoresIt()
     {
         // Arrange
-        // The story starts enabled: with IsEnabled false from the first render virtual-core places
-        // nothing at all, so there would be no window to watch freeze. The Disable button is the point.
+        // Upstream's documented behaviour for enabled=false is a RESET, not a freeze: it empties
+        // getVirtualItems() and clears the measurement caches, so every rendered item unmounts.
+        // The first version of this test asserted a "frozen" window and passed vacuously by
+        // comparing one empty list with another.
         var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--disabled");
+        var enabled = await _fixture.ReadRenderedRowsAsync();
+        Assert.True(enabled.Count > 0, "Expected rows while enabled.");
+
+        // Act
         await canvas.GetByTestId("disabled-toggle-enabled").ClickAsync();
         await StoryState.WaitForAsync(
             canvas,
             "disabled-state",
             x => x.GetProperty("lastAction").GetString() == "isEnabled:False",
             "the virtualizer to be suspended");
+        var whileDisabled = await _fixture.ReadRenderedRowsAsync();
 
-        var before = await _fixture.ReadRenderedRowsAsync();
-
-        // Act
-        await _fixture.Page.EvalOnSelectorAsync(
-            "[data-testid=\"disabled-viewport\"]",
-            "el => el.scrollTop += 3000");
-        // No wait-for-change here on purpose: the assertion is that nothing changes, so a fixed
-        // settle is the only honest way to give it the chance to.
-        await Task.Delay(1500);
-        var after = await _fixture.ReadRenderedRowsAsync();
+        await canvas.GetByTestId("disabled-toggle-enabled").ClickAsync();
+        await _fixture.Page.WaitForFunctionAsync(
+            "() => document.querySelectorAll('[data-index]').length > 0",
+            null,
+            new Microsoft.Playwright.PageWaitForFunctionOptions { Timeout = 15_000 });
+        var reEnabled = await _fixture.ReadRenderedRowsAsync();
 
         // Assert
-        Assert.Equal(before.Select(x => x.Index), after.Select(x => x.Index));
+        Assert.Empty(whileDisabled);
+        Assert.True(reEnabled.Count > 0, "Expected the window to come back after re-enabling.");
         _fixture.AssertNoJsErrors();
     }
 
