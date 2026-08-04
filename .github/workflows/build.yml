@@ -1,0 +1,56 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  SOLUTION_PATH: src/Blazor.TanStackVirtual.slnx
+  DOTNET_VERSION: '10.0.x'
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.SOLUTION_PATH }}
+
+    - name: Build
+      run: dotnet build ${{ env.SOLUTION_PATH }} --no-restore --configuration ${{ env.BUILD_CONFIGURATION }}
+
+    - name: Test with coverage
+      run: dotnet test ${{ env.SOLUTION_PATH }} --no-build --configuration ${{ env.BUILD_CONFIGURATION }} --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+    - name: Find coverage file
+      id: coverage
+      run: echo "file=$(find ./coverage -name 'coverage.cobertura.xml' | head -1)" >> $GITHUB_OUTPUT
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        files: ${{ steps.coverage.outputs.file }}
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+
+    # A multi-target RCL can lose its wwwroot on the way into the .nupkg and still "succeed".
+    # Verify the artifact rather than trusting the build log.
+    - name: Verify package carries its static web assets
+      run: |
+        PKG=$(find src -name '*.nupkg' | head -1)
+        echo "Inspecting $PKG"
+        CONTENTS=$(unzip -l "$PKG")
+        echo "$CONTENTS"
+        echo "$CONTENTS" | grep -q "staticwebassets/tanstack-virtual-core.esm.js"     || { echo "::error::vendored virtual-core missing from package"; exit 1; }
+        echo "$CONTENTS" | grep -q "staticwebassets/adaptive-virtualize-interop.js"   || { echo "::error::interop module missing from package"; exit 1; }
+        echo "$CONTENTS" | grep -q "build/Kebechet.Blazor.TanStackVirtual.props"  || { echo "::error::build props missing from package"; exit 1; }

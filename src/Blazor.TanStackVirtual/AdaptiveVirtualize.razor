@@ -1,0 +1,32 @@
+@typeparam TItem
+@inject IJSRuntime _jsRuntime
+
+<div @ref="_rootElement" style="@_containerStyle">
+    @foreach (var virtualItem in _virtualItems)
+    {
+        if (virtualItem.Index < 0 || virtualItem.Index >= Items.Count)
+        {
+            continue;
+        }
+
+        var row = Items[virtualItem.Index];
+        var stableKey = ItemKeyExtractor(row);
+
+        @* If the row at this index has changed since the virtualizer emitted this virtualItem (e.g.
+           a group expanded and inserted children), the virtualItem's start/size is stale for the new
+           content. Rendering with the stale offset visibly misplaces the row until the next JS
+           round-trip arrives with fresh positions - on slow JS interop (Android WebView) that gap is
+           hundreds of ms, long enough to see rows land where other rows used to be. Skip the
+           mismatched row so unchanged rows stay visible and changed rows go blank until JS catches up. *@
+        if (stableKey != virtualItem.Key)
+        {
+            continue;
+        }
+
+        <div @key="stableKey"
+             data-index="@virtualItem.Index"
+             style="@GetItemStyle(virtualItem)">
+            @ItemContent(row)
+        </div>
+    }
+</div>
