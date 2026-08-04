@@ -15,6 +15,15 @@ import {
 } from './tanstack-virtual-core.js';
 
 export function create(rootElement, dotNetRef, initialDescriptors, estimatedItemSize, options) {
+	// Blazor queues this call, so the element can already be gone by the time it runs - disposing
+	// the component, swapping a route, or switching a story marshals the ElementReference as null.
+	// Returning null instead of constructing leaves the caller's _jsInstance null, which every
+	// method already guards against; throwing here would surface as an unhandled render exception
+	// for a component that no longer exists.
+	if (!rootElement || !rootElement.isConnected) {
+		return null;
+	}
+
 	return new AdaptiveVirtualizeInstance(rootElement, dotNetRef, initialDescriptors, estimatedItemSize, options);
 }
 
@@ -130,7 +139,13 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	findScrollContainer(element) {
-		let current = element.parentElement;
+		// In window-scroller mode the scroll source is the window, so walking the ancestor chain
+		// would pick a container that is then never used.
+		if (this.isWindowScroller) {
+			return document.scrollingElement || document.documentElement;
+		}
+
+		let current = element?.parentElement ?? null;
 		while (current) {
 			const overflowY = window.getComputedStyle(current).overflowY;
 			const overflowX = window.getComputedStyle(current).overflowX;
@@ -146,6 +161,12 @@ class AdaptiveVirtualizeInstance {
 	setOptions(newOptions) {
 		this.options = compact(newOptions);
 		this.virtualizer.setOptions(this.buildVirtualizerOptions());
+		// _willUpdate is the ONLY place virtual-core resolves getScrollElement() and attaches its
+		// rect and offset observers, and it early-returns unless the element identity changed.
+		// Upstream's own framework adapters call it on every render; calling it once at construction
+		// is not enough. Without this, `enabled` flipping back to true never re-attaches the
+		// observers and the list stays frozen at zero items - silently, with no error.
+		this.virtualizer._willUpdate();
 		this.virtualizer.measure();
 		this.measuredKeys.clear();
 		this.notifyChange();

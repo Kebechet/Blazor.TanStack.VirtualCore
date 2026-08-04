@@ -247,16 +247,24 @@
         }
 
         double? lastOffset = null;
-        for (var attempt = 0; attempt < 20; attempt++)
+        var stableReads = 0;
+
+        for (var attempt = 0; attempt < 40; attempt++)
         {
             await Task.Delay(50);
             _snapshot = await _virtualize.GetSnapshot();
             WriteState();
             StateHasChanged();
 
-            if (_snapshot is not null && lastOffset is not null &&
+            var isStable = _snapshot is not null && lastOffset is not null &&
                 Math.Abs(_snapshot.ScrollOffset - lastOffset.Value) < 0.5 &&
-                !_snapshot.IsScrolling)
+                !_snapshot.IsScrolling;
+
+            // Requires several consecutive stable reads, not one. A scroll takes a moment to even
+            // begin, so "unchanged since the last read" is trivially true at offset 0 right after
+            // the call - settling on that reports 0 for a scroll that is about to land elsewhere.
+            stableReads = isStable ? stableReads + 1 : 0;
+            if (stableReads >= 4)
             {
                 return;
             }
