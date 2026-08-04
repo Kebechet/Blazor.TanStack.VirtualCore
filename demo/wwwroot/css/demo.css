@@ -104,3 +104,30 @@ button:hover {
     line-height: 1.5;
     white-space: pre-wrap;
 }
+
+/* Masonry and horizontal stories: the component sets each item's cross-axis position and size, so
+   the card only owns its inner spacing. A margin here would fight the computed lane width. */
+.row-card {
+    border-bottom: none;
+    padding: 10px 12px;
+}
+
+.row-card .row-title {
+    font-size: 13px;
+}
+
+/* Wide and short, so a horizontal list has somewhere to scroll. */
+.viewport-horizontal {
+    height: 200px;
+    width: 620px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid #d8dee6;
+    border-radius: 12px;
+    background: #fff;
+}
+
+/* The window-scroller story deliberately has no scroll container of its own. */
+.viewport-window {
+    width: 460px;
+}

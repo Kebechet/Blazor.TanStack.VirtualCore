@@ -5,19 +5,26 @@
     }
 
     <div class="demo-actions">
-        <button data-testid="@($"{TestId}-scroll-target")" @onclick="ScrollToTarget">
-            Scroll to @ScrollTargetIndex
+        <button data-testid="@($"{TestId}-scroll-target")" @onclick="ScrollToTarget">Scroll to @ScrollTargetIndex</button>
+        <button data-testid="@($"{TestId}-scroll-top")" @onclick="ScrollToTop">To top</button>
+        <button data-testid="@($"{TestId}-scroll-end")" @onclick="ScrollToEnd">To end</button>
+        <button data-testid="@($"{TestId}-scroll-offset")" @onclick="ScrollToOffset">To offset 2000</button>
+        <button data-testid="@($"{TestId}-scroll-by")" @onclick="ScrollBy">Nudge +300</button>
+        <button data-testid="@($"{TestId}-resize")" @onclick="ResizeFirstItem">Resize item 0 to 200px</button>
+        <button data-testid="@($"{TestId}-append")" @onclick="AppendItems">Append 10</button>
+        <button data-testid="@($"{TestId}-snapshot")" @onclick="ReadSnapshot">Read state</button>
+        <button data-testid="@($"{TestId}-toggle-enabled")" @onclick="ToggleEnabled">
+            @(_liveOptions.IsEnabled == false ? "Enable" : "Disable")
         </button>
-        <button data-testid="@($"{TestId}-scroll-top")" @onclick="ScrollToTop">Scroll to top</button>
     </div>
 
-    <div class="viewport" data-testid="@($"{TestId}-viewport")">
+    <div class="@_viewportClass" data-testid="@($"{TestId}-viewport")">
         <AdaptiveVirtualize @ref="_virtualize"
                             TItem="DemoRow"
                             Items="_rows"
                             ItemKeyExtractor="@(row => row.Key)"
                             ItemSizeEstimator="@(row => row.EstimatedHeight)"
-                            Overscan="3"
+                            Options="_liveOptions"
                             OnLayoutMeasured="OnLayoutMeasured">
             <ItemContent>
                 <div class="@context.CssClass" @onclick="() => ToggleGroup(context)">
@@ -50,26 +57,91 @@
     [Parameter]
     public int ScrollTargetIndex { get; set; } = 5_000;
 
+    [Parameter]
+    public VirtualizeOptions? Options { get; set; }
+
+    /// <summary>Lets a story pick the viewport shape its layout needs, e.g. a wide short box for a horizontal list.</summary>
+    [Parameter]
+    public string ViewportClass { get; set; } = "viewport";
+
     private AdaptiveVirtualize<DemoRow>? _virtualize;
     private IReadOnlyList<DemoRow> _rows = [];
     private readonly HashSet<string> _expandedKeys = [];
     private int _measuredPasses;
+    private int _appendedCount;
     private string _lastAction = "none";
+    private VirtualizerSnapshot? _snapshot;
     private string _stateJson = "{}";
+
+    private string _viewportClass => ViewportClass;
+
+    /// <summary>
+    /// The options actually handed to the component. Held separately from the <see cref="Options"/>
+    /// parameter so a story can toggle one at runtime - the component pushes to the live virtualizer
+    /// on reference change, so every toggle must produce a NEW instance rather than mutating.
+    /// </summary>
+    private VirtualizeOptions _liveOptions = new();
 
     protected override void OnInitialized()
     {
+        _liveOptions = Clone(Options);
         _rows = BuildRows();
         WriteState();
+    }
+
+    private async Task ToggleEnabled()
+    {
+        var next = Clone(_liveOptions);
+        next.IsEnabled = _liveOptions.IsEnabled == false;
+        _liveOptions = next;
+        _lastAction = $"isEnabled:{next.IsEnabled}";
+        WriteState();
+
+        // Give the component a render to push the new options before anything reads state back.
+        await Task.Yield();
+    }
+
+    private static VirtualizeOptions Clone(VirtualizeOptions? source)
+    {
+        return new VirtualizeOptions
+        {
+            Overscan = source?.Overscan,
+            IsHorizontal = source?.IsHorizontal,
+            Lanes = source?.Lanes,
+            LaneAssignmentMode = source?.LaneAssignmentMode,
+            Gap = source?.Gap,
+            PaddingStart = source?.PaddingStart,
+            PaddingEnd = source?.PaddingEnd,
+            ScrollPaddingStart = source?.ScrollPaddingStart,
+            ScrollPaddingEnd = source?.ScrollPaddingEnd,
+            ScrollMargin = source?.ScrollMargin,
+            InitialOffset = source?.InitialOffset,
+            InitialRect = source?.InitialRect,
+            InitialMeasurementsCache = source?.InitialMeasurementsCache,
+            AnchorTo = source?.AnchorTo,
+            FollowOnAppend = source?.FollowOnAppend,
+            ScrollEndThreshold = source?.ScrollEndThreshold,
+            ScrollingResetDelay = source?.ScrollingResetDelay,
+            UseScrollEndEvent = source?.UseScrollEndEvent,
+            IsRtl = source?.IsRtl,
+            IsEnabled = source?.IsEnabled,
+            UseAnimationFrameWithResizeObserver = source?.UseAnimationFrameWithResizeObserver,
+            UseCachedMeasurements = source?.UseCachedMeasurements,
+            IndexAttribute = source?.IndexAttribute,
+            IsDebugEnabled = source?.IsDebugEnabled,
+            AlwaysRenderedIndexes = source?.AlwaysRenderedIndexes,
+            UseWindowScroller = source?.UseWindowScroller,
+        };
     }
 
     private IReadOnlyList<DemoRow> BuildRows()
     {
         return Shape switch
         {
-            ListShape.Uniform => DemoRow.BuildUniform(ItemCount),
-            ListShape.Variable => DemoRow.BuildVariable(ItemCount),
+            ListShape.Uniform => DemoRow.BuildUniform(ItemCount + _appendedCount),
+            ListShape.Variable => DemoRow.BuildVariable(ItemCount + _appendedCount),
             ListShape.Expandable => DemoRow.BuildExpandable(ItemCount, _expandedKeys),
+            ListShape.Cards => DemoRow.BuildCards(ItemCount + _appendedCount),
             _ => throw new NotImplementedException($"Unhandled {nameof(ListShape)} value: {Shape}")
         };
     }
@@ -86,9 +158,9 @@
             _expandedKeys.Add(row.Key);
         }
 
-        // The group row's own height changes with the chevron state while its key stays the same, so
-        // the preserved measurement is now stale. Without this the row keeps its old height until
-        // something else forces a re-measure, and the inserted children land overlapping it.
+        // The group row's own size changes with the chevron state while its key stays the same, so
+        // the preserved measurement is now stale. Without this the row keeps its old size and the
+        // inserted children render overlapping it.
         if (_virtualize is not null)
         {
             await _virtualize.InvalidateItemSize(row.Key);
@@ -101,34 +173,108 @@
 
     private async Task ScrollToTarget()
     {
-        if (_virtualize is null)
-        {
-            return;
-        }
-
-        await _virtualize.ScrollToIndex(ScrollTargetIndex, ScrollAlignment.Start, ScrollBehavior.Instant);
-        _lastAction = $"scrollToIndex:{ScrollTargetIndex}";
-        WriteState();
+        await Run($"scrollToIndex:{ScrollTargetIndex}",
+            v => v.ScrollToIndex(ScrollTargetIndex, ScrollAlignment.Start, ScrollBehavior.Instant));
     }
 
     private async Task ScrollToTop()
     {
+        await Run("scrollToTop", v => v.ScrollToTop());
+    }
+
+    private async Task ScrollToEnd()
+    {
+        await Run("scrollToEnd", v => v.ScrollToEnd(ScrollBehavior.Instant));
+    }
+
+    private async Task ScrollToOffset()
+    {
+        await Run("scrollToOffset:2000", v => v.ScrollToOffset(2000, ScrollAlignment.Start, ScrollBehavior.Instant));
+    }
+
+    private async Task ScrollBy()
+    {
+        await Run("scrollBy:300", v => v.ScrollBy(300, ScrollBehavior.Instant));
+    }
+
+    private async Task ResizeFirstItem()
+    {
+        await Run("resizeItem:0", v => v.ResizeItem(0, 200));
+    }
+
+    private async Task AppendItems()
+    {
+        _appendedCount += 10;
+        _rows = BuildRows();
+        _lastAction = $"append:{_appendedCount}";
+        WriteState();
+    }
+
+    private async Task ReadSnapshot()
+    {
         if (_virtualize is null)
         {
             return;
         }
 
-        await _virtualize.ScrollToTop();
-        _lastAction = "scrollToTop";
+        _snapshot = await _virtualize.GetSnapshot();
+        _lastAction = "getSnapshot";
         WriteState();
     }
 
-    private Task OnLayoutMeasured()
+    private async Task Run(string action, Func<AdaptiveVirtualize<DemoRow>, Task> operation)
+    {
+        if (_virtualize is null)
+        {
+            return;
+        }
+
+        await operation(_virtualize);
+        _lastAction = action;
+
+        // A scroll is applied by the browser and only then observed, so reading the snapshot in the
+        // same turn reports the PRE-scroll offset. Poll until it settles rather than sampling once -
+        // otherwise every offset-based assertion in the browser suite races the scroll it just asked
+        // for.
+        await RefreshSnapshotUntilSettled();
+    }
+
+    private async Task RefreshSnapshotUntilSettled()
+    {
+        if (_virtualize is null)
+        {
+            return;
+        }
+
+        double? lastOffset = null;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await Task.Delay(50);
+            _snapshot = await _virtualize.GetSnapshot();
+            WriteState();
+            StateHasChanged();
+
+            if (_snapshot is not null && lastOffset is not null &&
+                Math.Abs(_snapshot.ScrollOffset - lastOffset.Value) < 0.5 &&
+                !_snapshot.IsScrolling)
+            {
+                return;
+            }
+
+            lastOffset = _snapshot?.ScrollOffset;
+        }
+    }
+
+    private async Task OnLayoutMeasured()
     {
         _measuredPasses++;
+        if (_virtualize is not null)
+        {
+            _snapshot = await _virtualize.GetSnapshot();
+        }
+
         WriteState();
         StateHasChanged();
-        return Task.CompletedTask;
     }
 
     private void WriteState()
@@ -141,17 +287,24 @@
                 ["expandedCount"] = _expandedKeys.Count,
                 ["measuredPasses"] = _measuredPasses,
                 ["lastAction"] = _lastAction,
+                ["scrollOffset"] = _snapshot is null ? null : Math.Round(_snapshot.ScrollOffset),
+                ["totalSize"] = _snapshot is null ? null : Math.Round(_snapshot.TotalSize),
+                ["isAtEnd"] = _snapshot?.IsAtEnd,
+                ["startIndex"] = _snapshot?.StartIndex,
+                ["endIndex"] = _snapshot?.EndIndex,
             },
             new JsonSerializerOptions { WriteIndented = true });
     }
 
     public enum ListShape
     {
-        /// <summary>Every row the same height - the case the framework's Virtualize already handles.</summary>
+        /// <summary>Every item the same size - the case the framework's Virtualize already handles.</summary>
         Uniform,
-        /// <summary>Row heights vary by a factor of roughly five, which is where an averaged size falls apart.</summary>
+        /// <summary>Sizes vary by a factor of roughly five, which is where an averaged size falls apart.</summary>
         Variable,
         /// <summary>Group rows that insert children in place, exercising InvalidateItemSize.</summary>
-        Expandable
+        Expandable,
+        /// <summary>Compact cards of mixed heights, for masonry and horizontal layouts.</summary>
+        Cards
     }
 }

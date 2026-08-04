@@ -9,9 +9,9 @@
 ![Last updated](https://img.shields.io/github/last-commit/Kebechet/Blazor.TanStackVirtual/main?label=last%20updated)
 [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/samuel_sidor.svg?style=social&label=Follow%20samuel_sidor)](https://x.com/samuel_sidor)
 
-Virtualization for Blazor lists whose rows are **genuinely different heights**, powered by [@tanstack/virtual-core](https://github.com/TanStack/virtual).
+Virtualization for Blazor lists whose items are **genuinely different sizes**, powered by [@tanstack/virtual-core](https://github.com/TanStack/virtual).
 
-Every row is measured individually. Blazor keeps ownership of rendering - the JS side only answers "which indices are visible, and at what offsets", and the component renders that slice.
+Every item is measured individually. Blazor keeps ownership of rendering - the JS side only answers "which indices are visible, and at what offsets", and the component renders that slice. Vertical, horizontal and multi-lane (masonry) layouts are all supported.
 
 The virtual-core build is vendored and pinned inside the package, so there is no npm step, no CDN, and no `<script>` tag.
 
@@ -51,15 +51,47 @@ The component fills its nearest scrollable ancestor, which it finds by walking u
                         Items="_exercises"
                         ItemKeyExtractor="@(x => x.Id.ToString())"
                         ItemSizeEstimator="@(x => x.IsExpanded ? 240 : 72)"
-                        Overscan="5">
+                        Options="_options">
         <ItemContent>
             <ExerciseRow Exercise="context" />
         </ItemContent>
     </AdaptiveVirtualize>
 </div>
+
+@code {
+    private readonly VirtualizeOptions _options = new() { Overscan = 5 };
+}
 ```
 
-`ItemKeyExtractor` is load-bearing. It is both Blazor's `@key` and the measurement-cache key, so it must be stable for a row across renders and unique between rows - otherwise measurements attach to the wrong row.
+`ItemKeyExtractor` is load-bearing. It is both Blazor's `@key` and the measurement-cache key, so it must be stable for an item across renders and unique between items - otherwise measurements attach to the wrong item.
+
+`Options` carries the whole upstream surface and is reactive: assigning a **new** instance pushes the changed values to the live virtualizer. Mutating the existing instance in place does nothing, because the component compares references.
+
+### Layouts
+
+```csharp
+// A horizontal card rail
+new VirtualizeOptions { IsHorizontal = true, Gap = 8 }
+
+// A three-column masonry grid, balanced by measured size
+new VirtualizeOptions { Lanes = 3, LaneAssignmentMode = LaneAssignmentMode.Measured, Gap = 10 }
+
+// A log tail that follows new entries
+new VirtualizeOptions { FollowOnAppend = FollowOnAppend.Instant, AnchorTo = ScrollAnchor.End }
+
+// Virtualize against the document rather than a scrollable ancestor
+new VirtualizeOptions { UseWindowScroller = true }
+```
+
+In a multi-lane layout each placement reports the `Lane` it landed in, and the component turns that into the item's cross-axis position and size - so your `ItemContent` only owns its own inner spacing. An outer margin would fight the computed lane width.
+
+### Keeping items rendered off-screen
+
+```csharp
+new VirtualizeOptions { AlwaysRenderedIndexes = [0, 1] }
+```
+
+Those indices stay in the DOM however far away you scroll - a sticky header, a pinned selection, a row being dragged. This is upstream's `rangeExtractor`, reshaped: a JS predicate would cost an interop round-trip on every range computation, so the wrapper takes the indices and compiles the extractor itself.
 
 ### Invalidating one row
 
@@ -75,11 +107,23 @@ private async Task ToggleGroup(Exercise exercise)
 }
 ```
 
-### Scrolling
+### Scrolling and inspecting
 
 ```csharp
 await _virtualize.ScrollToIndex(42, ScrollAlignment.Center, ScrollBehavior.Smooth);
+await _virtualize.ScrollToOffset(2000);
+await _virtualize.ScrollToEnd(ScrollBehavior.Instant);
+await _virtualize.ScrollBy(300);
 await _virtualize.ScrollToTop();
+
+// Override a size directly, without waiting for the DOM to be measured
+await _virtualize.ResizeItem(index: 0, size: 200);
+
+// Live state: offset, total size, isScrolling, isAtEnd, direction, rendered range
+var snapshot = await _virtualize.GetSnapshot();
+
+// Save measurements, then restore them on a later mount to skip re-measuring
+var measurements = await _virtualize.TakeSnapshot();
 ```
 
 ### Two-phase rendering
@@ -90,22 +134,21 @@ It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCall
 
 ## Coverage vs. @tanstack/virtual-core 3.17.7
 
-This wrapper is a deliberately narrow, opinionated surface over virtual-core - a vertical, single-lane list - not a general binding.
+**Complete.** Every `VirtualizerOptions` member is reachable, and every `Virtualizer` member that means something to a .NET caller is surfaced.
 
 | Axis | virtual-core | This package |
 |---|---:|---:|
-| `VirtualizerOptions` members | 36 | 4 exposed, 6 wired internally |
-| Public `Virtualizer` members | 35 | 3 surfaced |
+| `VirtualizerOptions` members | 36 | 36 |
 
-**Exposed as parameters:** `count` (from `Items`), `estimateSize` (`ItemSizeEstimator` / `EstimatedItemSize`), `getItemKey` (`ItemKeyExtractor`), `overscan` (`Overscan`).
+**Set through `Options`** (25): `overscan`, `horizontal`, `lanes`, `laneAssignmentMode`, `gap`, `paddingStart`, `paddingEnd`, `scrollPaddingStart`, `scrollPaddingEnd`, `scrollMargin`, `initialOffset`, `initialRect`, `initialMeasurementsCache`, `anchorTo`, `followOnAppend`, `scrollEndThreshold`, `isScrollingResetDelay`, `useScrollendEvent`, `isRtl`, `enabled`, `useAnimationFrameWithResizeObserver`, `useCachedMeasurements`, `indexAttribute`, `debug`, plus `rangeExtractor` reshaped as `AlwaysRenderedIndexes`.
 
-**Wired internally with fixed values:** `getScrollElement` (auto-detected ancestor), `observeElementOffset`, `observeElementRect`, `scrollToFn`, `measureElement`, `onChange`.
+**Supplied by the component** (11), because virtual-core requires them as functions called on every scroll frame - marshalling them to .NET would mean an interop round-trip per frame: `count` (from `Items`), `estimateSize` (`ItemSizeEstimator` / `EstimatedItemSize`), `getItemKey` (`ItemKeyExtractor`), `measureElement`, `onChange`, and the scroll-source trio `getScrollElement` / `observeElementOffset` / `observeElementRect` / `scrollToFn` - which `UseWindowScroller` switches between the element and window variants (`observeWindowOffset`, `observeWindowRect`, `windowScroll`).
 
-**Surfaced methods:** `scrollToIndex` (as `ScrollToIndex` / `ScrollToTop`), plus `InvalidateItemSize`, which has no direct upstream equivalent - it evicts one key from the measurement cache and bumps the cache version.
+**Methods:** `ScrollToIndex`, `ScrollToOffset`, `ScrollToEnd`, `ScrollBy`, `ScrollToTop`, `ResizeItem`, `Measure`, `GetTotalSize`, `GetVirtualIndexes`, `GetOffsetForIndex`, `GetVirtualItemForOffset`, `GetDistanceFromEnd`, `GetSnapshot` (scroll offset, total size, `isScrolling`, `isAtEnd`, direction and the rendered range), `TakeSnapshot`, plus `InvalidateItemSize` - which has no upstream equivalent; it evicts one key from the measurement cache and bumps the cache version.
 
-**Not covered:** `horizontal`, `lanes` (masonry / multi-column), `gap`, `paddingStart` / `paddingEnd`, `scrollMargin`, `scrollPadding*`, `rangeExtractor`, `initialMeasurementsCache`, `isRtl`, `debug`, `enabled`, and the window-scroller mode (`observeWindowOffset` / `observeWindowRect` / `windowScroll`). Also unsurfaced: `scrollToOffset`, `scrollToEnd`, `scrollBy`, `resizeItem`, `takeSnapshot`.
+**Deliberately not surfaced:** virtual-core's internal plumbing - `elementsCache`, `targetWindow`, `updateDeps`, `calculateRange`, `indexFromElement`, `shouldAdjustScrollPositionOnItemSizeChange`, `scrollAdjustments`, `setOptions` (driven by the `Options` parameter) and the raw `options` / `measurementsCache` / `itemSizeCache` fields, which `GetSnapshot` and `TakeSnapshot` expose in a typed form instead.
 
-There is no `AdditionalAttributes` escape hatch to reach the rest - the virtualizer is constructed inside the interop module. Open an issue for anything you need and it can be modelled explicitly; `horizontal` and `lanes` are the obvious next candidates.
+⚠️ **`isAtEnd` is a method upstream, not a property** (`(threshold?: number) => boolean`). Reading it as a property yields the function object, which is never `=== true` - so a snapshot would report "not at end" forever. Pinned by `ScrollToEnd_ReachesTheEndOfTheList`.
 
 Coverage is measured against virtual-core's published `dist/esm/index.d.ts` - the `VirtualizerOptions` interface and the `Virtualizer` class - excluding underscore-prefixed internals.
 

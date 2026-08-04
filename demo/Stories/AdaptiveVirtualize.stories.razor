@@ -13,6 +13,7 @@
                                    Shape="VirtualListPlayground.ListShape.Uniform"
                                    ItemCount="10000"
                                    ScrollTargetIndex="5000"
+                                   Options="_overscanOptions"
                                    Hint="Only a couple of dozen row elements are ever in the DOM, whichever part of the list you are looking at." />
         </Template>
     </Story>
@@ -29,6 +30,7 @@
                                    Shape="VirtualListPlayground.ListShape.Variable"
                                    ItemCount="5000"
                                    ScrollTargetIndex="2500"
+                                   Options="_overscanOptions"
                                    Hint="Every row is deliberately given the same 70px estimate, so the measurement pass has visible work to do." />
         </Template>
     </Story>
@@ -45,24 +47,230 @@
                                    Shape="VirtualListPlayground.ListShape.Expandable"
                                    ItemCount="500"
                                    ScrollTargetIndex="100"
+                                   Options="_overscanOptions"
                                    Hint="Click any group row. Measurements for every other row survive the item-set change - only the toggled group is re-measured." />
         </Template>
     </Story>
 
-    <Story Name="Scroll to index">
+    <Story Name="Horizontal">
         <Description>
-            <code>ScrollToIndex</code> takes a <code>ScrollAlignment</code> and a
-            <code>ScrollBehavior</code>. With variable heights this is only correct because the
-            virtualizer knows each row's real size - an estimate-based offset would land near the
-            target rather than on it.
+            <code>IsHorizontal</code> lays the list out along the x axis. Sizes are then measured as
+            widths, and the component translates on X while splitting the cross axis by height. Use it
+            for a card rail or a timeline.
         </Description>
         <Template>
-            <VirtualListPlayground TestId="scroll"
+            <VirtualListPlayground TestId="horizontal"
+                                   Shape="VirtualListPlayground.ListShape.Cards"
+                                   ItemCount="4000"
+                                   ScrollTargetIndex="1000"
+                                   ViewportClass="viewport-horizontal"
+                                   Options="_horizontalOptions"
+                                   Hint="Scrolls sideways. The viewport is deliberately wide and short so the horizontal axis is the one doing the work." />
+        </Template>
+    </Story>
+
+    <Story Name="Lanes (masonry)">
+        <Description>
+            <code>Lanes</code> turns the list into a multi-column masonry grid. Items are distributed
+            across lanes and each placement reports the <code>Lane</code> it landed in, which the
+            component converts into the item's cross-axis position and width.
+            <code>LaneAssignmentMode</code> chooses whether balancing uses estimates or measured
+            sizes - <code>Measured</code> packs more evenly once measurement settles.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="lanes"
+                                   Shape="VirtualListPlayground.ListShape.Cards"
+                                   ItemCount="3000"
+                                   ScrollTargetIndex="600"
+                                   Options="_laneOptions"
+                                   Hint="Three lanes balanced by measured size. Cards have deliberately uneven heights so the lanes stay ragged." />
+        </Template>
+    </Story>
+
+    <Story Name="Gap and padding">
+        <Description>
+            <code>Gap</code> inserts space between consecutive items, and <code>PaddingStart</code> /
+            <code>PaddingEnd</code> reserve space before the first and after the last. All three are
+            part of the virtualizer's own geometry rather than CSS, so offsets and total size account
+            for them - a CSS margin would not.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="spacing"
+                                   Shape="VirtualListPlayground.ListShape.Cards"
+                                   ItemCount="2000"
+                                   ScrollTargetIndex="400"
+                                   Options="_spacingOptions"
+                                   Hint="16px between items, 40px of padding at each end." />
+        </Template>
+    </Story>
+
+    <Story Name="Always-rendered indexes">
+        <Description>
+            Upstream's <code>rangeExtractor</code> is a JavaScript function called on every range
+            computation, so marshalling it to .NET would cost an interop round-trip per scroll frame.
+            It is modelled as <code>AlwaysRenderedIndexes</code>, which the interop layer compiles
+            into a real extractor that unions those indices with the default range. Use it for a
+            sticky header, a pinned selection, or a row being dragged.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="pinned"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="5000"
+                                   ScrollTargetIndex="2000"
+                                   Options="_pinnedOptions"
+                                   Hint="Rows 0 and 1 stay in the DOM no matter how far you scroll - check the element list after jumping to row 2000." />
+        </Template>
+    </Story>
+
+    <Story Name="Follow on append">
+        <Description>
+            <code>FollowOnAppend</code> makes the viewport track items added to the end, and
+            <code>AnchorTo</code> chooses which edge stays stable when content shifts. Together they
+            are what a log tail or a chat transcript needs. Press <em>Append 10</em> while scrolled to
+            the bottom.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="follow"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="300"
+                                   ScrollTargetIndex="200"
+                                   Options="_followOptions"
+                                   Hint="Scroll to the end, then append - the viewport follows instead of staying put." />
+        </Template>
+    </Story>
+
+    <Story Name="Disabled">
+        <Description>
+            <code>IsEnabled = false</code> suspends the virtualizer without unmounting it: no
+            measuring, no scroll observation, and the rendered window freezes where it was. Useful
+            while a panel is hidden, so an off-screen list stops paying for scroll work.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="disabled"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="1000"
+                                   ScrollTargetIndex="500"
+                                   Options="_disabledOptions"
+                                   Hint="Scrolling this list changes nothing - the virtualizer is suspended." />
+        </Template>
+    </Story>
+
+    <Story Name="Right to left">
+        <Description>
+            <code>IsRtl</code> flips the axis offsets are measured along, for right-to-left locales.
+            Pair it with <code>IsHorizontal</code> for a card rail that starts on the right.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="rtl"
+                                   Shape="VirtualListPlayground.ListShape.Cards"
+                                   ItemCount="2000"
+                                   ScrollTargetIndex="500"
+                                   ViewportClass="viewport-horizontal"
+                                   Options="_rtlOptions"
+                                   Hint="Horizontal and right-to-left together." />
+        </Template>
+    </Story>
+
+    <Story Name="Window scroller">
+        <Description>
+            <code>UseWindowScroller</code> virtualizes against the window rather than a scrollable
+            ancestor, swapping in virtual-core's <code>observeWindowRect</code> /
+            <code>observeWindowOffset</code> / <code>windowScroll</code> trio. Use it when the list
+            scrolls with the whole document instead of inside its own box - note this story has no
+            scroll container of its own.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="window"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="2000"
+                                   ScrollTargetIndex="400"
+                                   ViewportClass="viewport-window"
+                                   Options="_windowOptions"
+                                   Hint="Scroll the page itself, not a box. Best viewed with the story canvas open on its own." />
+        </Template>
+    </Story>
+
+    <Story Name="Imperative API">
+        <Description>
+            The full method surface on one list: <code>ScrollToIndex</code>,
+            <code>ScrollToOffset</code>, <code>ScrollToEnd</code>, <code>ScrollBy</code>,
+            <code>ResizeItem</code> and <code>GetSnapshot</code>. The state panel shows what
+            <code>GetSnapshot</code> reads back from the live virtualizer - scroll offset, total size,
+            whether it is at the end, and the current rendered range.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="api"
                                    Shape="VirtualListPlayground.ListShape.Variable"
                                    ItemCount="20000"
                                    ScrollTargetIndex="12345"
-                                   Hint="Jump to row 12345 in a 20,000-row list of mixed heights, then back to the top." />
+                                   Options="_overscanOptions"
+                                   Hint="Every button maps to one public method. ResizeItem overrides a measured size directly, without waiting for the DOM." />
         </Template>
     </Story>
 
 </Stories>
+
+@code {
+    private readonly VirtualizeOptions _overscanOptions = new()
+    {
+        Overscan = 3,
+    };
+
+    private readonly VirtualizeOptions _horizontalOptions = new()
+    {
+        IsHorizontal = true,
+        Overscan = 3,
+        Gap = 8,
+    };
+
+    private readonly VirtualizeOptions _laneOptions = new()
+    {
+        Lanes = 3,
+        LaneAssignmentMode = LaneAssignmentMode.Measured,
+        Gap = 10,
+        Overscan = 4,
+    };
+
+    private readonly VirtualizeOptions _spacingOptions = new()
+    {
+        Gap = 16,
+        PaddingStart = 40,
+        PaddingEnd = 40,
+        Overscan = 3,
+    };
+
+    private readonly VirtualizeOptions _pinnedOptions = new()
+    {
+        AlwaysRenderedIndexes = [0, 1],
+        Overscan = 2,
+    };
+
+    private readonly VirtualizeOptions _followOptions = new()
+    {
+        FollowOnAppend = FollowOnAppend.Instant,
+        AnchorTo = ScrollAnchor.End,
+        Overscan = 3,
+    };
+
+    private readonly VirtualizeOptions _disabledOptions = new()
+    {
+        // Starts enabled: with IsEnabled false from the first render virtual-core places nothing at
+        // all, so there would be no list to watch freeze. The story's Disable button is the point.
+        IsEnabled = true,
+        Overscan = 3,
+    };
+
+    private readonly VirtualizeOptions _rtlOptions = new()
+    {
+        IsHorizontal = true,
+        IsRtl = true,
+        Gap = 8,
+        Overscan = 3,
+    };
+
+    private readonly VirtualizeOptions _windowOptions = new()
+    {
+        UseWindowScroller = true,
+        Overscan = 3,
+    };
+}

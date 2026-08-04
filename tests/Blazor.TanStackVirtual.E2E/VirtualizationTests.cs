@@ -82,11 +82,11 @@ public sealed class VirtualizationTests
         {
             var previous = rows[index - 1];
             var current = rows[index];
-            var expectedOffset = previous.Offset + previous.Height;
+            var expectedOffset = previous.Offset(false) + previous.Height;
 
             Assert.True(
-                Math.Abs(current.Offset - expectedOffset) < 1.5,
-                $"Row {current.Index} sits at {current.Offset:F1}px but row {previous.Index} ends at {expectedOffset:F1}px.");
+                Math.Abs(current.Offset(false) - expectedOffset) < 1.5,
+                $"Row {current.Index} sits at {current.Offset(false):F1}px but row {previous.Index} ends at {expectedOffset:F1}px.");
         }
 
         _fixture.AssertNoJsErrors();
@@ -115,10 +115,10 @@ public sealed class VirtualizationTests
     public async Task ScrollToIndex_LandsOnTheRequestedRow()
     {
         // Arrange
-        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--scroll-to-index");
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--imperative-api");
 
         // Act
-        await canvas.GetByTestId("scroll-scroll-target").ClickAsync();
+        await canvas.GetByTestId("api-scroll-target").ClickAsync();
         await _fixture.Page.WaitForFunctionAsync(
             @"() => Array.from(document.querySelectorAll('[data-index]'))
 				.some(el => parseInt(el.getAttribute('data-index'), 10) === 12345)",
@@ -138,8 +138,8 @@ public sealed class VirtualizationTests
     public async Task ScrollToTop_ReturnsToTheFirstRow()
     {
         // Arrange
-        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--scroll-to-index");
-        await canvas.GetByTestId("scroll-scroll-target").ClickAsync();
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--imperative-api");
+        await canvas.GetByTestId("api-scroll-target").ClickAsync();
         await _fixture.Page.WaitForFunctionAsync(
             @"() => Array.from(document.querySelectorAll('[data-index]'))
 				.every(el => parseInt(el.getAttribute('data-index'), 10) > 100)",
@@ -147,7 +147,7 @@ public sealed class VirtualizationTests
             new Microsoft.Playwright.PageWaitForFunctionOptions { Timeout = 15_000 });
 
         // Act
-        await canvas.GetByTestId("scroll-scroll-top").ClickAsync();
+        await canvas.GetByTestId("api-scroll-top").ClickAsync();
         await _fixture.Page.WaitForFunctionAsync(
             @"() => Array.from(document.querySelectorAll('[data-index]'))
 				.some(el => parseInt(el.getAttribute('data-index'), 10) === 0)",
@@ -158,7 +158,7 @@ public sealed class VirtualizationTests
 
         // Assert
         Assert.Equal(0, rows[0].Index);
-        Assert.Equal(0, rows[0].Offset);
+        Assert.Equal(0, rows[0].Offset(false));
         _fixture.AssertNoJsErrors();
     }
 
@@ -193,8 +193,8 @@ public sealed class VirtualizationTests
             var previous = after[index - 1];
             var current = after[index];
             Assert.True(
-                current.Offset >= previous.Offset + previous.Height - 1.5,
-                $"Row {current.Index} at {current.Offset:F1}px overlaps row {previous.Index}, which ends at {previous.Offset + previous.Height:F1}px.");
+                current.Offset(false) >= previous.Offset(false) + previous.Height - 1.5,
+                $"Row {current.Index} at {current.Offset(false):F1}px overlaps row {previous.Index}, which ends at {previous.Offset(false) + previous.Height:F1}px.");
         }
 
         _fixture.AssertNoJsErrors();

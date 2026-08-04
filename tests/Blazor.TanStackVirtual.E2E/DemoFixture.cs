@@ -130,28 +130,36 @@ public sealed class DemoFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// The rows currently in the DOM, as (index, translateY, height) triples ordered by index.
+    /// The items currently in the DOM, ordered by index, with the placement the browser resolved.
     /// </summary>
     /// <remarks>
-    /// Read from the live DOM rather than from a state panel on purpose: how many row elements
-    /// actually exist, and where they actually sit, is the entire claim virtualization makes. A
-    /// panel could only report what C# believes.
+    /// Read from the live DOM rather than from a state panel on purpose: how many elements actually
+    /// exist, and where they actually sit, is the entire claim virtualization makes. A panel could
+    /// only report what C# believes.
     /// </remarks>
     public async Task<IReadOnlyList<RenderedRow>> ReadRenderedRowsAsync()
     {
         var rows = await Page.EvaluateAsync<RenderedRow[]>(
             @"() => Array.from(document.querySelectorAll('[data-index]')).map(el => {
-                const transform = getComputedStyle(el).transform;
-                // getComputedStyle resolves translateY() to a matrix; the Y translation is its
-                // last component. Parsing the raw style attribute instead would only prove the
-                // string was written, not that the browser accepted it.
-                const offset = transform === 'none'
-                    ? 0
-                    : parseFloat(transform.slice(transform.lastIndexOf(',') + 1));
+                const style = getComputedStyle(el);
+                // getComputedStyle resolves translateX/Y to a matrix(a,b,c,d,tx,ty). Reading tx and
+                // ty out of it - rather than parsing the style attribute - is what proves the
+                // browser accepted the declaration instead of merely that a string was written.
+                let translateX = 0, translateY = 0;
+                if (style.transform && style.transform !== 'none') {
+                    const parts = style.transform.slice(style.transform.indexOf('(') + 1, -1).split(',').map(parseFloat);
+                    if (parts.length >= 6) { translateX = parts[4]; translateY = parts[5]; }
+                }
+                const rect = el.getBoundingClientRect();
                 return {
                     index: parseInt(el.getAttribute('data-index'), 10),
-                    offset: offset,
-                    height: el.getBoundingClientRect().height
+                    translateX: translateX,
+                    translateY: translateY,
+                    width: rect.width,
+                    height: rect.height,
+                    // The component writes the cross-axis position inline; a multi-lane layout is
+                    // the only thing that makes this differ between items.
+                    crossStart: (el.style.left || el.style.top || '')
                 };
             }).sort((a, b) => a.index - b.index)");
 

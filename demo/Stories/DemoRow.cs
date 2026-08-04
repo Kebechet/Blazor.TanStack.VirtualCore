@@ -108,6 +108,36 @@ internal sealed record DemoRow(
         return rows;
     }
 
+    /// <summary>
+    /// Compact tiles of mixed sizes, for the masonry and horizontal stories where a full-width row
+    /// would make lane assignment and cross-axis placement impossible to see.
+    /// </summary>
+    internal static IReadOnlyList<DemoRow> BuildCards(int count)
+    {
+        var rows = new DemoRow[count];
+        for (var index = 0; index < count; index++)
+        {
+            var wordCount = (index % 5) switch
+            {
+                0 => 2,
+                1 => 14,
+                2 => 6,
+                3 => 22,
+                _ => 9
+            };
+
+            rows[index] = new DemoRow(
+                Key: $"c{index}",
+                Title: $"Card {index}",
+                Body: BuildBody(index, wordCount),
+                EstimatedHeight: 90,
+                CssClass: "row row-card",
+                IsGroup: false);
+        }
+
+        return rows;
+    }
+
     private static string BuildBody(int seed, int wordCount)
     {
         var words = new string[wordCount];
