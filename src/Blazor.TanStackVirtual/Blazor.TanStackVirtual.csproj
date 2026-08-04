@@ -27,7 +27,7 @@
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
     <Version>3.17.7</Version>
-    <PackageReleaseNotes>Initial release. Wraps @tanstack/virtual-core 3.17.7 with an AdaptiveVirtualize&lt;TItem&gt; component: exact per-row measurement, a per-row size estimator, cache preservation across item-set changes, per-key size invalidation, and scroll-to-index.</PackageReleaseNotes>
+    <PackageReleaseNotes>Initial release. Wraps @tanstack/virtual-core 3.17.7 with complete option coverage - all 36 VirtualizerOptions are reachable. AdaptiveVirtualize&lt;TItem&gt; measures every item exactly, caches by item key, preserves measurements across item-set changes, and exposes targeted InvalidateItemSize(key). Layouts: vertical, horizontal, multi-lane masonry (per-item Lane), gap and padding as virtualizer geometry, RTL, and a window-scroller mode. Behaviour: FollowOnAppend and AnchorTo for chat-style lists, AlwaysRenderedIndexes (upstream's rangeExtractor reshaped), and IsEnabled suspend/reset. Imperative API: ScrollToIndex, ScrollToOffset, ScrollToEnd, ScrollBy, ScrollToTop, ResizeItem, Measure, GetTotalSize, GetVirtualIndexes, GetOffsetForIndex, GetVirtualItemForOffset, GetDistanceFromEnd, GetSnapshot and TakeSnapshot. Verified by 21 real-browser Playwright tests plus unit tests.</PackageReleaseNotes>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
