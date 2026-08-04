@@ -4,18 +4,26 @@ body {
     padding: 16px;
 }
 
+/* The story canvas background follows the storybook shell's theme - dark mode paints it dark. The
+   demo chrome must therefore never inherit colors from the canvas: the root states its own color,
+   and free-floating text carries its own surface. */
 .demo-stack {
     display: flex;
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
+    color: #16202b;
 }
 
 .demo-hint {
     margin: 0;
     font-size: 13px;
-    color: #555;
+    color: #3c4a58;
     max-width: 70ch;
+    background: #f6f8fa;
+    border: 1px solid #e2e8ee;
+    border-radius: 8px;
+    padding: 8px 12px;
 }
 
 .demo-actions {
@@ -30,6 +38,7 @@ button {
     border-radius: 8px;
     border: 1px solid #c9d2db;
     background: #fff;
+    color: #16202b;
     cursor: pointer;
 }
 
@@ -103,6 +112,7 @@ button:hover {
     font-size: 12px;
     line-height: 1.5;
     white-space: pre-wrap;
+    color: #16202b;
 }
 
 /* Masonry and horizontal stories: the component sets each item's cross-axis position and size, so
