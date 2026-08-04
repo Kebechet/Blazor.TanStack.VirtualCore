@@ -14,7 +14,7 @@
                                    ItemCount="10000"
                                    ScrollTargetIndex="5000"
                                    Options="_overscanOptions"
-                                   Hint="Only a couple of dozen row elements are ever in the DOM, whichever part of the list you are looking at." />
+                                   Hint="The core claim: 10,000 items, but only the visible window plus Overscan exists in the DOM. Scroll and watch row numbers climb while the element count stays flat. The buttons drive the imperative API; the panel below shows GetSnapshot's live state." />
         </Template>
     </Story>
 
@@ -31,7 +31,7 @@
                                    ItemCount="5000"
                                    ScrollTargetIndex="2500"
                                    Options="_overscanOptions"
-                                   Hint="Every row is deliberately given the same 70px estimate, so the measurement pass has visible work to do." />
+                                   Hint="Exact per-row measurement - the case a fixed ItemSize or a running average cannot place. Bodies cycle 1, 8, 25 and 3 words, yet every row deliberately shares one 70px estimate, so you can see measurement refine the layout without gaps or overlaps." />
         </Template>
     </Story>
 
@@ -48,7 +48,7 @@
                                    ItemCount="500"
                                    ScrollTargetIndex="100"
                                    Options="_overscanOptions"
-                                   Hint="Click any group row. Measurements for every other row survive the item-set change - only the toggled group is re-measured." />
+                                   Hint="InvalidateItemSize(key): click any group row to insert three children in place. The group's height changes while its key does not, so its cached measurement is evicted - every other row's measurement survives the item-set change untouched." />
         </Template>
     </Story>
 
@@ -65,7 +65,7 @@
                                    ScrollTargetIndex="1000"
                                    ViewportClass="viewport-horizontal"
                                    Options="_horizontalOptions"
-                                   Hint="Scrolls sideways. The viewport is deliberately wide and short so the horizontal axis is the one doing the work." />
+                                   Hint="IsHorizontal lays the list out along the x axis - sizes are measured as widths and the list scrolls sideways, for a card rail or timeline. The viewport is deliberately wide and short so the horizontal axis is the one doing the work." />
         </Template>
     </Story>
 
@@ -83,7 +83,7 @@
                                    ItemCount="3000"
                                    ScrollTargetIndex="600"
                                    Options="_laneOptions"
-                                   Hint="Three lanes balanced by measured size. Cards have deliberately uneven heights so the lanes stay ragged." />
+                                   Hint="Lanes = 3 turns the list into a masonry grid: items are distributed across lanes and each placement carries the lane it landed in. LaneAssignmentMode.Measured balances by real size once measurement settles. Cards are deliberately uneven so the lanes stay ragged." />
         </Template>
     </Story>
 
@@ -100,7 +100,7 @@
                                    ItemCount="2000"
                                    ScrollTargetIndex="400"
                                    Options="_spacingOptions"
-                                   Hint="16px between items, 40px of padding at each end." />
+                                   Hint="Gap = 16 and PaddingStart/PaddingEnd = 40 are virtualizer geometry, not CSS - offsets and total size account for them, which a margin could not. Note the first item starts 40px down and every seam is exactly 16px." />
         </Template>
     </Story>
 
@@ -118,7 +118,7 @@
                                    ItemCount="5000"
                                    ScrollTargetIndex="2000"
                                    Options="_pinnedOptions"
-                                   Hint="Rows 0 and 1 stay in the DOM no matter how far you scroll - check the element list after jumping to row 2000." />
+                                   Hint="AlwaysRenderedIndexes = [0, 1] keeps those rows in the DOM however far away you scroll - a sticky header, a pinned selection, a row being dragged. Jump to row 2000, then inspect the DOM: rows 0 and 1 are still there." />
         </Template>
     </Story>
 
@@ -135,7 +135,7 @@
                                    ItemCount="300"
                                    ScrollTargetIndex="200"
                                    Options="_followOptions"
-                                   Hint="Scroll to the end, then append - the viewport follows instead of staying put." />
+                                   Hint="FollowOnAppend + AnchorTo = End: the shape of a chat transcript or log tail. Scroll to the end, then press Append 10 - the viewport follows the new items instead of stranding you behind them." />
         </Template>
     </Story>
 
@@ -151,7 +151,7 @@
                                    ItemCount="1000"
                                    ScrollTargetIndex="500"
                                    Options="_disabledOptions"
-                                   Hint="Scrolling this list changes nothing - the virtualizer is suspended." />
+                                   Hint="IsEnabled suspends the virtualizer without unmounting it - for an off-screen panel that should stop paying for scroll work. Press Disable, scroll (nothing reacts), then Enable to resume where you were." />
         </Template>
     </Story>
 
@@ -167,7 +167,7 @@
                                    ScrollTargetIndex="500"
                                    ViewportClass="viewport-horizontal"
                                    Options="_rtlOptions"
-                                   Hint="Horizontal and right-to-left together." />
+                                   Hint="IsRtl flips the axis offsets are measured along, for right-to-left locales - combined here with IsHorizontal, so the card rail starts on the right and scrolls leftward." />
         </Template>
     </Story>
 
@@ -186,7 +186,7 @@
                                    ScrollTargetIndex="400"
                                    ViewportClass="viewport-window"
                                    Options="_windowOptions"
-                                   Hint="Scroll the page itself, not a box. Best viewed with the story canvas open on its own." />
+                                   Hint="UseWindowScroller virtualizes against the document instead of a scrollable ancestor - this story has no scroll container of its own, so scroll the page itself. For lists that flow with the whole page rather than sitting in a box." />
         </Template>
     </Story>
 
@@ -204,7 +204,7 @@
                                    ItemCount="20000"
                                    ScrollTargetIndex="12345"
                                    Options="_overscanOptions"
-                                   Hint="Every button maps to one public method. ResizeItem overrides a measured size directly, without waiting for the DOM." />
+                                   Hint="Every button maps to one public method: ScrollToIndex / ScrollToOffset / ScrollToEnd / ScrollBy / ScrollToTop, ResizeItem (overrides a measured size without touching the DOM), and Read state = GetSnapshot, whose live values fill the panel below - over 20,000 mixed-height rows." />
         </Template>
     </Story>
 
