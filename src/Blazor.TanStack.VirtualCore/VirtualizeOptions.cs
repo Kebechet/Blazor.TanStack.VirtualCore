@@ -21,6 +21,44 @@ public sealed class VirtualizeOptions
     [JsonPropertyName("overscan")]
     public int? Overscan { get; set; }
 
+    /// <summary>
+    /// Items kept rendered ahead of the viewport, on the side the user is scrolling towards. Leave
+    /// unset to keep <see cref="Overscan"/> on that side.
+    /// </summary>
+    /// <remarks>
+    /// Buffering further along the direction of travel than behind it is what react-window,
+    /// react-virtualized and Angular's CDK all do by default: that is where the next items are
+    /// actually needed, so the same budget masks more scroll latency.
+    /// <para>
+    /// The side this lands on follows the virtualizer's scroll direction and flips when the user
+    /// reverses. A list that has never scrolled reports no direction and is treated as scrolling
+    /// forward.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("overscanLeading")]
+    public int? OverscanLeading { get; set; }
+
+    /// <summary>
+    /// Items kept rendered behind the direction of travel - the floor a reversal starts from. Leave
+    /// unset to keep <see cref="Overscan"/> on that side.
+    /// </summary>
+    /// <remarks>
+    /// Unlike react-window's equivalent, this is held at all times rather than lapsing when the
+    /// scroll stops: virtual-core memoizes its rendered range on
+    /// <c>[rangeExtractor, overscan, count, startIndex, endIndex]</c>, which excludes
+    /// <c>isScrolling</c>, so a value that lapsed would simply never be recomputed and the bias would
+    /// outlive the scroll instead.
+    /// <para>
+    /// Holding it means reversing is never worse than a symmetric window of the same size, so leave
+    /// it at whatever <see cref="Overscan"/> you would otherwise have used and treat
+    /// <see cref="OverscanLeading"/> as the addition. Raise it further when unmounting an item is
+    /// expensive - a row owning a media element, say - since those items are already mounted and
+    /// holding them costs far less than rebuilding them.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("overscanTrailing")]
+    public int? OverscanTrailing { get; set; }
+
     /// <summary>Lays the list out along the x axis instead of the y axis.</summary>
     [JsonPropertyName("horizontal")]
     public bool? IsHorizontal { get; set; }

@@ -1,3 +1,4 @@
+using Microsoft.Playwright;
 using Xunit;
 
 namespace Blazor.TanStack.VirtualCore.E2E;
@@ -119,6 +120,110 @@ public sealed class OptionCoverageTests
         Assert.Contains(rows, x => x.Index == 0);
         Assert.Contains(rows, x => x.Index == 1);
         _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task DirectionalOverscan_WhileScrollingForward_BuffersFurtherAheadThanBehind()
+    {
+        // Arrange
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
+        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+
+        // Act
+        await _fixture.ScrollViewportAsync("directional", 600);
+        var buffer = await ReadBufferAsync(canvas);
+
+        // Assert
+        Assert.Equal("forward", buffer.ScrollDirection);
+
+        // OverscanLeading 12 against OverscanTrailing 2. A build where the compiled rangeExtractor
+        // never reached virtual-core still renders a correct, scrollable list - it is simply
+        // symmetric, which only this comparison can see.
+        Assert.Equal(12, buffer.Below);
+        Assert.Equal(2, buffer.Above);
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task DirectionalOverscan_AfterReversing_FlipsWhichSideIsBuffered()
+    {
+        // Arrange
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
+        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+        await _fixture.ScrollViewportAsync("directional", 600);
+
+        // Act
+        await _fixture.ScrollViewportAsync("directional", -600);
+        var buffer = await ReadBufferAsync(canvas);
+
+        // Assert
+        // The leading side is wherever the user is heading, not a fixed downward bias - otherwise
+        // scrolling back up would run permanently on the small buffer.
+        Assert.Equal("backward", buffer.ScrollDirection);
+        Assert.Equal(12, buffer.Above);
+        Assert.Equal(2, buffer.Below);
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task DirectionalOverscan_OnceScrollingStops_HoldsTheTrailingFloor()
+    {
+        // Arrange
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
+        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+
+        // Act - well past virtual-core's default 150ms isScrollingResetDelay
+        await _fixture.ScrollViewportAsync("directional", 600);
+        await Task.Delay(1000);
+        var buffer = await ReadBufferAsync(canvas);
+
+        // Assert
+        // Pins the reason the trailing count is a held floor rather than a while-scrolling value:
+        // virtual-core memoizes getVirtualIndexes on [rangeExtractor, overscan, count, startIndex,
+        // endIndex], so nothing re-invokes the extractor once the range stops moving. A value that
+        // lapsed on isScrolling would never be recomputed, and the bias would outlive the scroll.
+        // Holding it keeps a reversal no worse off than a symmetric window of the same size.
+        Assert.False(buffer.IsScrolling);
+        Assert.Equal(2, buffer.Above);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// How many rendered rows sit outside the visible range on each side - the overscan buffer, as
+    /// the difference between what is in the DOM and the range the virtualizer reports as visible.
+    /// </summary>
+    /// <remarks>
+    /// Index arithmetic rather than geometry: the rendered rows are absolutely positioned inside the
+    /// virtualizer's own container, so comparing their <c>translateY</c> against the viewport's
+    /// <c>scrollTop</c> silently measures against the wrong origin whenever anything else shares the
+    /// scroller.
+    /// </remarks>
+    private async Task<BufferSample> ReadBufferAsync(ILocator canvas)
+    {
+        await canvas.GetByTestId("directional-snapshot").ClickAsync();
+        var state = await StoryState.WaitForAsync(
+            canvas,
+            "directional-state",
+            x => x.TryGetProperty("startIndex", out var start) && start.GetInt32() >= 0,
+            "a snapshot carrying the visible range");
+
+        var rows = await _fixture.ReadRenderedRowsAsync();
+
+        return new BufferSample
+        {
+            Above = StoryState.Int(state, "startIndex") - rows.Min(x => x.Index),
+            Below = rows.Max(x => x.Index) - StoryState.Int(state, "endIndex"),
+            IsScrolling = StoryState.Bool(state, "isScrolling"),
+            ScrollDirection = state.GetProperty("scrollDirection").GetString(),
+        };
+    }
+
+    private sealed class BufferSample
+    {
+        public required int Above { get; init; }
+        public required int Below { get; init; }
+        public required bool IsScrolling { get; init; }
+        public required string? ScrollDirection { get; init; }
     }
 
     [Fact]

@@ -105,7 +105,12 @@
     {
         return new VirtualizeOptions
         {
+            // Every VirtualizeOptions member has to be listed here. A new option that is not gets
+            // silently dropped on the way to the virtualizer, and its story then demonstrates the
+            // default while looking like it demonstrates the option.
             Overscan = source?.Overscan,
+            OverscanLeading = source?.OverscanLeading,
+            OverscanTrailing = source?.OverscanTrailing,
             IsHorizontal = source?.IsHorizontal,
             Lanes = source?.Lanes,
             LaneAssignmentMode = source?.LaneAssignmentMode,
@@ -298,6 +303,8 @@
                 ["scrollOffset"] = _snapshot is null ? null : Math.Round(_snapshot.ScrollOffset),
                 ["totalSize"] = _snapshot is null ? null : Math.Round(_snapshot.TotalSize),
                 ["isAtEnd"] = _snapshot?.IsAtEnd,
+                ["isScrolling"] = _snapshot?.IsScrolling,
+                ["scrollDirection"] = _snapshot?.ScrollDirection,
                 ["startIndex"] = _snapshot?.StartIndex,
                 ["endIndex"] = _snapshot?.EndIndex,
             },

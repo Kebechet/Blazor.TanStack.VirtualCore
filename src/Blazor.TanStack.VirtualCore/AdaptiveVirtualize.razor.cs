@@ -80,8 +80,21 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     private double _totalSize;
     private IReadOnlyList<TItem>? _lastItemsRef;
     private VirtualizeOptions? _lastOptionsRef;
+
     private int _lastMeasuredFirstIndex = -1;
     private int _lastMeasuredLastIndex = -1;
+
+    /// <summary>
+    /// Reusable interop buffers. Rebuilding these is O(items), so for a large set it is worth not
+    /// reallocating them on every item-set change.
+    /// </summary>
+    private string[] _itemKeys = [];
+    private double[] _itemSizes = [];
+
+    private readonly List<PreparedRow> _preparedRows = [];
+    private IReadOnlyList<VirtualItem>? _preparedFromVirtualItems;
+    private IReadOnlyList<TItem>? _preparedFromItems;
+    private VirtualizeOptions? _preparedFromOptions;
 
     private bool _isHorizontal => Options?.IsHorizontal == true;
     private int _laneCount => Options?.Lanes is > 1 ? Options.Lanes.Value : 1;
@@ -102,11 +115,19 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     /// evenly between lanes, which is what turns <c>Lanes</c> into an actual masonry grid rather
     /// than a stack of overlapping items.
     /// </summary>
+    /// <remarks>
+    /// Called once per rendered row per window change - never per render - because the results are
+    /// held in <see cref="_preparedRows"/>. Building them inline in the markup meant a handful of
+    /// string allocations per row on every single render batch, and a busy list produces hundreds of
+    /// those per scroll.
+    /// </remarks>
     private string GetItemStyle(VirtualItem virtualItem)
     {
         var lanes = _laneCount;
-        var crossSize = ToCss(100d / lanes);
-        var crossStart = ToCss(virtualItem.Lane * (100d / lanes));
+        // A single-lane list is the overwhelmingly common case, and there the cross axis is simply
+        // the full width - worth not formatting two constants per row to say so.
+        var crossSize = lanes == 1 ? "100" : ToCss(100d / lanes);
+        var crossStart = lanes == 1 ? "0" : ToCss(virtualItem.Lane * (100d / lanes));
 
         if (_isHorizontal)
         {
@@ -116,6 +137,75 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
         return $"position:absolute;top:0;left:{crossStart}%;width:{crossSize}%;" +
             $"transform:translateY({ToCss(virtualItem.Start)}px);";
+    }
+
+    /// <summary>
+    /// The rows to render, with their key and placement resolved once per change of the window, the
+    /// item set or the options - rather than on every render, which is where they used to be built.
+    /// </summary>
+    private List<PreparedRow> _rowsToRender
+    {
+        get
+        {
+            if (ReferenceEquals(_preparedFromVirtualItems, _virtualItems) &&
+                ReferenceEquals(_preparedFromItems, Items) &&
+                ReferenceEquals(_preparedFromOptions, Options))
+            {
+                return _preparedRows;
+            }
+
+            _preparedFromVirtualItems = _virtualItems;
+            _preparedFromItems = Items;
+            _preparedFromOptions = Options;
+            _preparedRows.Clear();
+
+            foreach (var virtualItem in _virtualItems)
+            {
+                if (virtualItem.Index < 0 || virtualItem.Index >= Items.Count)
+                {
+                    continue;
+                }
+
+                var item = Items[virtualItem.Index];
+                var key = ItemKeyExtractor(item);
+
+                // If the row at this index has changed since the virtualizer emitted this virtualItem
+                // (e.g. a group expanded and inserted children), the virtualItem's start/size is stale
+                // for the new content. Rendering with the stale offset visibly misplaces the row until
+                // the next JS round-trip arrives with fresh positions - on slow JS interop (Android
+                // WebView) that gap is hundreds of ms, long enough to see rows land where other rows
+                // used to be. Skip the mismatched row so unchanged rows stay visible and changed rows
+                // go blank until JS catches up.
+                if (key != virtualItem.Key)
+                {
+                    continue;
+                }
+
+                _preparedRows.Add(new PreparedRow(key, virtualItem.Index, GetItemStyle(virtualItem), item));
+            }
+
+            return _preparedRows;
+        }
+    }
+
+    /// <remarks>
+    /// Plain constructor rather than <c>required</c> members: the package targets down to net6.0,
+    /// where <c>RequiredMemberAttribute</c> does not exist.
+    /// </remarks>
+    private sealed class PreparedRow
+    {
+        public PreparedRow(string key, int index, string style, TItem item)
+        {
+            Key = key;
+            Index = index;
+            Style = style;
+            Item = item;
+        }
+
+        public string Key { get; }
+        public int Index { get; }
+        public string Style { get; }
+        public TItem Item { get; }
     }
 
     /// <summary>
@@ -134,8 +224,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         {
             _selfRef = DotNetObjectReference.Create(this);
             _jsModule = await _jsRuntime.InvokeAsync<IJSObjectReference>("import", _modulePath);
+            BuildDescriptors();
             _jsInstance = await _jsModule.InvokeAsync<IJSObjectReference>(
-                "create", _rootElement, _selfRef, BuildDescriptors(), EstimatedItemSize, Options);
+                "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
             _lastItemsRef = Items;
             _lastOptionsRef = Options;
 
@@ -170,11 +261,8 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             // assignment that re-entry still sees the old reference and fires a second, redundant
             // setItems.
             _lastItemsRef = Items;
-            // Cast to object so InvokeVoidAsync's params object[] overload treats the descriptor
-            // array as ONE argument instead of unpacking each descriptor as a separate JS arg.
-            // Without it JS receives setItems(d1, d2, ...) and reads d1 as the whole array - which
-            // leaves count unchanged and throws outright when the array is empty.
-            await _jsInstance.InvokeVoidAsync("setItems", (object)BuildDescriptors());
+            BuildDescriptors();
+            await _jsInstance.InvokeVoidAsync("setItems", _itemKeys, _itemSizes);
         }
 
         var firstIndex = _virtualItems.Count > 0
@@ -188,6 +276,12 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         // selection toggle, a state pulse) bring no new DOM into view, and a measure pass there is a
         // querySelectorAll plus a forced layout per item plus an interop round-trip, for nothing.
         // An items change always forces one because the keys behind those indices may differ.
+        //
+        // Deliberately NOT narrowed to "some rendered key has never been measured", which would also
+        // skip the pass when scrolling back over rows seen earlier. A row's height can change without
+        // its key changing and without InvalidateItemSize being called - content arriving late, a
+        // child rendering, an animation settling - and this pass is what catches that. Pinned by
+        // ExpandingAGroup_InsertsChildrenWithoutOverlappingTheGroupRow, which fails on exactly that.
         if (!hasItemsChanged &&
             firstIndex == _lastMeasuredFirstIndex &&
             lastIndex == _lastMeasuredLastIndex)
@@ -333,24 +427,30 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Snapshots <see cref="Items"/> into the descriptors the JS side needs to answer the
+    /// Snapshots <see cref="Items"/> into the two arrays the JS side needs to answer the
     /// virtualizer's <c>getItemKey</c> and <c>estimateSize</c> callbacks synchronously. Sent once
     /// per <see cref="Items"/> reference change - never on scroll.
     /// </summary>
-    private ItemDescriptor[] BuildDescriptors()
+    /// <remarks>
+    /// Two parallel arrays rather than one array of objects, because this crosses the interop
+    /// boundary as JSON and covers the <b>whole</b> item set, not just the rendered window. For a
+    /// few thousand items the object form meant that many heap allocations plus a payload several
+    /// times larger, rebuilt on every filter keystroke. The buffers are reused for the same reason.
+    /// </remarks>
+    private void BuildDescriptors()
     {
-        var descriptors = new ItemDescriptor[Items.Count];
+        if (_itemKeys.Length != Items.Count)
+        {
+            _itemKeys = new string[Items.Count];
+            _itemSizes = new double[Items.Count];
+        }
+
         for (var index = 0; index < Items.Count; index++)
         {
             var item = Items[index];
-            descriptors[index] = new ItemDescriptor
-            {
-                Key = ItemKeyExtractor(item),
-                EstimatedSize = ItemSizeEstimator?.Invoke(item) ?? EstimatedItemSize,
-            };
+            _itemKeys[index] = ItemKeyExtractor(item);
+            _itemSizes[index] = ItemSizeEstimator?.Invoke(item) ?? EstimatedItemSize;
         }
-
-        return descriptors;
     }
 
     [JSInvokable]

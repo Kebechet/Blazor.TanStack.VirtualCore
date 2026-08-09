@@ -128,6 +128,25 @@ var measurements = await _virtualize.TakeSnapshot();
 
 ### Two-phase rendering
 
+### Directional overscan
+
+`Overscan` buffers both sides equally. `OverscanLeading` / `OverscanTrailing` spend more of that budget on the side the user is scrolling towards, which is where the next items are actually needed:
+
+```csharp
+private readonly VirtualizeOptions _options = new()
+{
+    Overscan = 5,          // the fallback for either side
+    OverscanLeading = 10,  // ahead of travel
+    OverscanTrailing = 5,  // behind travel - the floor a reversal starts from
+};
+```
+
+The leading side follows the virtualizer's scroll direction and flips when the user reverses; a list that has never scrolled is treated as scrolling forward. Biasing toward travel is the default in react-window's [`_getRangeToRender`](https://github.com/bvaughn/react-window/blob/1.8.11/src/createListComponent.js), react-virtualized's [`defaultOverscanIndicesGetter`](https://github.com/bvaughn/react-virtualized/blob/master/source/Grid/defaultOverscanIndicesGetter.js) and Angular CDK's [`FixedSizeVirtualScrollStrategy`](https://github.com/angular/components/blob/main/src/cdk/scrolling/fixed-size-virtual-scroll.ts).
+
+⚠️ **`OverscanTrailing` is held at all times, not only while scrolling** - which is where this deliberately parts company with react-window. React re-renders when its `isScrolling` state flips, so its range genuinely recomputes at rest. virtual-core memoizes `getVirtualIndexes` on `[rangeExtractor, overscan, count, startIndex, endIndex]`, and `isScrolling` is not among them, so an extractor that read it would keep returning the scrolling-time answer until the visible range moved again - the bias would outlive the scroll rather than lapse with it.
+
+Holding the trailing side instead means a reversal is never worse than a symmetric window of the same size. Leave `OverscanTrailing` at whatever `Overscan` you would otherwise have used and treat `OverscanLeading` as the addition. Raise it further when unmounting an item is expensive - a row owning a `<video>`, say - since those items are already mounted and holding them costs far less than rebuilding them.
+
 `OnLayoutMeasured` fires after each measurement pass. Use it when extra content must be appended only once the preceding row's real height is known, so the new rows land correctly on first paint instead of estimating and snapping.
 
 It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCallback` calls `StateHasChanged` on the receiver after the handler returns, which on a page with a debounced search input re-renders the bound input with a stale value and clobbers in-flight keystrokes.
@@ -140,7 +159,7 @@ It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCall
 |---|---:|---:|
 | `VirtualizerOptions` members | 36 | 36 |
 
-**Set through `Options`** (25): `overscan`, `horizontal`, `lanes`, `laneAssignmentMode`, `gap`, `paddingStart`, `paddingEnd`, `scrollPaddingStart`, `scrollPaddingEnd`, `scrollMargin`, `initialOffset`, `initialRect`, `initialMeasurementsCache`, `anchorTo`, `followOnAppend`, `scrollEndThreshold`, `isScrollingResetDelay`, `useScrollendEvent`, `isRtl`, `enabled`, `useAnimationFrameWithResizeObserver`, `useCachedMeasurements`, `indexAttribute`, `debug`, plus `rangeExtractor` reshaped as `AlwaysRenderedIndexes`.
+**Set through `Options`** (25): `overscan`, `horizontal`, `lanes`, `laneAssignmentMode`, `gap`, `paddingStart`, `paddingEnd`, `scrollPaddingStart`, `scrollPaddingEnd`, `scrollMargin`, `initialOffset`, `initialRect`, `initialMeasurementsCache`, `anchorTo`, `followOnAppend`, `scrollEndThreshold`, `isScrollingResetDelay`, `useScrollendEvent`, `isRtl`, `enabled`, `useAnimationFrameWithResizeObserver`, `useCachedMeasurements`, `indexAttribute`, `debug`, plus `rangeExtractor` reshaped as `AlwaysRenderedIndexes` and `OverscanLeading` / `OverscanTrailing`.
 
 **Supplied by the component** (11), because virtual-core requires them as functions called on every scroll frame - marshalling them to .NET would mean an interop round-trip per frame: `count` (from `Items`), `estimateSize` (`ItemSizeEstimator` / `EstimatedItemSize`), `getItemKey` (`ItemKeyExtractor`), `measureElement`, `onChange`, and the scroll-source trio `getScrollElement` / `observeElementOffset` / `observeElementRect` / `scrollToFn` - which `UseWindowScroller` switches between the element and window variants (`observeWindowOffset`, `observeWindowRect`, `windowScroll`).
 

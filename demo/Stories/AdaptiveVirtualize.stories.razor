@@ -122,6 +122,25 @@
         </Template>
     </Story>
 
+    <Story Name="Directional overscan">
+        <Description>
+            <code>Overscan</code> buffers both sides equally. <code>OverscanLeading</code> and
+            <code>OverscanTrailing</code> spend more of that budget on the side the user is scrolling
+            towards, where the next rows are actually needed - the default behaviour of react-window,
+            react-virtualized and Angular's CDK. The leading side follows the scroll direction and
+            flips when the user reverses; the trailing side is a floor held at all times, so a
+            reversal is never worse than a symmetric window.
+        </Description>
+        <Template>
+            <VirtualListPlayground TestId="directional"
+                                   Shape="VirtualListPlayground.ListShape.Uniform"
+                                   ItemCount="5000"
+                                   ScrollTargetIndex="2000"
+                                   Options="_directionalOverscanOptions"
+                                   Hint="12 rows ahead of travel, 2 behind. Jump to row 2000, scroll down, then press Read state: far more rows sit below endIndex than above startIndex. Scroll up and the asymmetry flips with you." />
+        </Template>
+    </Story>
+
     <Story Name="Follow on append">
         <Description>
             <code>FollowOnAppend</code> makes the viewport track items added to the end, and
@@ -246,6 +265,13 @@
     {
         AlwaysRenderedIndexes = [0, 1],
         Overscan = 2,
+    };
+
+    private readonly VirtualizeOptions _directionalOverscanOptions = new()
+    {
+        Overscan = 2,
+        OverscanLeading = 12,
+        OverscanTrailing = 2,
     };
 
     private readonly VirtualizeOptions _followOptions = new()

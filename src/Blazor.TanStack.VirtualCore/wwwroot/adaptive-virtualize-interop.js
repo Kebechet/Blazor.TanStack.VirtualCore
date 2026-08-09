@@ -14,7 +14,7 @@ import {
 	defaultRangeExtractor,
 } from './tanstack-virtual-core.js';
 
-export function create(rootElement, dotNetRef, initialDescriptors, estimatedItemSize, options) {
+export function create(rootElement, dotNetRef, itemKeys, itemSizes, estimatedItemSize, options) {
 	// Blazor queues this call, so the element can already be gone by the time it runs - disposing
 	// the component, swapping a route, or switching a story marshals the ElementReference as null.
 	// Returning null instead of constructing leaves the caller's _jsInstance null, which every
@@ -24,7 +24,7 @@ export function create(rootElement, dotNetRef, initialDescriptors, estimatedItem
 		return null;
 	}
 
-	return new AdaptiveVirtualizeInstance(rootElement, dotNetRef, initialDescriptors, estimatedItemSize, options);
+	return new AdaptiveVirtualizeInstance(rootElement, dotNetRef, itemKeys, itemSizes, estimatedItemSize, options);
 }
 
 /**
@@ -48,10 +48,15 @@ function compact(source) {
 }
 
 class AdaptiveVirtualizeInstance {
-	constructor(rootElement, dotNetRef, initialDescriptors, estimatedItemSize, options) {
+	// Keys and sizes arrive as two parallel arrays rather than one array of objects: this covers the
+	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON on
+	// every item-set change. For a few thousand items the object form cost that many allocations on
+	// the .NET side and a much larger payload.
+	constructor(rootElement, dotNetRef, itemKeys, itemSizes, estimatedItemSize, options) {
 		this.rootElement = rootElement;
 		this.dotNetRef = dotNetRef;
-		this.descriptors = initialDescriptors;
+		this.itemKeys = itemKeys ?? [];
+		this.itemSizes = itemSizes ?? [];
 		this.estimatedItemSize = estimatedItemSize;
 		this.options = compact(options);
 		this.scrollContainer = this.findScrollContainer(rootElement);
@@ -84,6 +89,8 @@ class AdaptiveVirtualizeInstance {
 		const {
 			useWindowScroller,
 			alwaysRenderedIndexes,
+			overscanLeading,
+			overscanTrailing,
 			followOnAppend,
 			laneAssignmentMode,
 			anchorTo,
@@ -92,9 +99,9 @@ class AdaptiveVirtualizeInstance {
 
 		const resolved = {
 			...passThrough,
-			count: this.descriptors.length,
-			estimateSize: (index) => this.descriptors[index]?.estimatedSize ?? this.estimatedItemSize,
-			getItemKey: (index) => this.descriptors[index]?.key ?? String(index),
+			count: this.itemKeys.length,
+			estimateSize: (index) => this.itemSizes[index] ?? this.estimatedItemSize,
+			getItemKey: (index) => this.itemKeys[index] ?? String(index),
 			measureElement,
 			onChange: () => this.notifyChange(),
 		};
@@ -125,17 +132,64 @@ class AdaptiveVirtualizeInstance {
 		}
 
 		// rangeExtractor is a JS function called on every range computation, so it cannot be
-		// marshalled to .NET without an interop round-trip per scroll frame. The wrapper models it
-		// as a list of indices to always keep rendered, compiled here into a real extractor that
-		// unions them with virtual-core's own default range.
-		if (Array.isArray(alwaysRenderedIndexes) && alwaysRenderedIndexes.length > 0) {
+		// marshalled to .NET without an interop round-trip per scroll frame. Both wrapper features
+		// that shape the range - the always-rendered indices and the directional overscan - are
+		// therefore compiled into the single extractor upstream allows.
+		const pinnedIndexes = Array.isArray(alwaysRenderedIndexes) ? alwaysRenderedIndexes : [];
+		const hasDirectionalOverscan = Number.isFinite(overscanLeading) || Number.isFinite(overscanTrailing);
+
+		if (pinnedIndexes.length > 0 || hasDirectionalOverscan) {
 			resolved.rangeExtractor = (range) => {
-				const indexes = new Set([...alwaysRenderedIndexes, ...defaultRangeExtractor(range)]);
+				const windowIndexes = hasDirectionalOverscan
+					? this.extractDirectionalRange(range, overscanLeading, overscanTrailing)
+					: defaultRangeExtractor(range);
+
+				if (pinnedIndexes.length === 0) {
+					return windowIndexes;
+				}
+
+				const indexes = new Set([...pinnedIndexes, ...windowIndexes]);
 				return [...indexes].filter(i => i >= 0 && i < range.count).sort((a, b) => a - b);
 			};
 		}
 
 		return resolved;
+	}
+
+	/**
+	 * defaultRangeExtractor, but spending more of the budget on the side the user is heading towards.
+	 *
+	 * Deliberately NOT gated on isScrolling, the way react-window's _getRangeToRender is. React
+	 * re-renders when its isScrolling state flips, so its range genuinely recomputes at rest;
+	 * virtual-core memoizes getVirtualIndexes on [rangeExtractor, overscan, count, startIndex,
+	 * endIndex] and isScrolling is not among them, so an extractor that read it would keep returning
+	 * the scrolling-time answer until the visible range moved again. The bias would then silently
+	 * outlive the scroll - the opposite of what gating it was meant to achieve.
+	 *
+	 * The trailing count is what makes that safe: it is a floor held at all times, not a value that
+	 * lapses. Leave it at overscan and reversing is never worse than a symmetric window; the leading
+	 * side is then pure profit.
+	 */
+	extractDirectionalRange(range, leading, trailing) {
+		const resolve = (value) => Number.isFinite(value) ? value : range.overscan;
+		const leadingCount = resolve(leading);
+		const trailingCount = resolve(trailing);
+
+		// A list that has never scrolled reports no direction. Treating that as forward puts the
+		// bigger buffer below, which is where a first scroll almost always goes.
+		// virtual-core also computes a range from inside its own constructor, before the assignment
+		// in ours has run, so this can genuinely be undefined on the very first call.
+		const isBackward = this.virtualizer?.scrollDirection === 'backward';
+
+		const start = Math.max(range.startIndex - (isBackward ? leadingCount : trailingCount), 0);
+		const end = Math.min(range.endIndex + (isBackward ? trailingCount : leadingCount), range.count - 1);
+
+		const indexes = [];
+		for (let index = start; index <= end; index++) {
+			indexes.push(index);
+		}
+
+		return indexes;
 	}
 
 	findScrollContainer(element) {
@@ -227,7 +281,7 @@ class AdaptiveVirtualizeInstance {
 			elements.forEach(el => {
 				const indexAttr = el.getAttribute(attribute);
 				const index = indexAttr !== null ? parseInt(indexAttr, 10) : -1;
-				const key = index >= 0 ? this.descriptors[index]?.key : undefined;
+				const key = index >= 0 ? this.itemKeys[index] : undefined;
 				if (key && this.measuredKeys.has(key)) {
 					return;
 				}
@@ -243,7 +297,7 @@ class AdaptiveVirtualizeInstance {
 		this.notifyChange();
 	}
 
-	setItems(newDescriptors) {
+	setItems(newItemKeys, newItemSizes) {
 		// Snapshot existing per-key measurements before measure() wipes them. An item-set change
 		// (a filter swap, an inserted child row) must not cost the measurements of items whose
 		// content did not change - otherwise expanding a group clears the group's measured size,
@@ -253,11 +307,12 @@ class AdaptiveVirtualizeInstance {
 			? new Map(this.virtualizer.itemSizeCache)
 			: new Map();
 
-		this.descriptors = newDescriptors;
+		this.itemKeys = newItemKeys ?? [];
+		this.itemSizes = newItemSizes ?? [];
 
 		// Drop measured-key tracking for keys no longer present. Their itemSizeCache entries are
 		// simply not restored below, which evicts them.
-		const newKeys = new Set(newDescriptors.map(d => d.key));
+		const newKeys = new Set(this.itemKeys);
 		for (const key of [...this.measuredKeys]) {
 			if (!newKeys.has(key)) {
 				this.measuredKeys.delete(key);
@@ -266,7 +321,7 @@ class AdaptiveVirtualizeInstance {
 
 		this.virtualizer.setOptions({
 			...this.virtualizer.options,
-			count: newDescriptors.length,
+			count: this.itemKeys.length,
 		});
 
 		// measure() does two things: it reassigns itemSizeCache to an empty Map, and it
