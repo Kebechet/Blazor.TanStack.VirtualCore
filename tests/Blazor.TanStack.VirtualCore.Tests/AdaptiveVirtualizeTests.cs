@@ -10,6 +10,8 @@ namespace Kebechet.Blazor.TanStack.VirtualCore.Tests;
 
 public class AdaptiveVirtualizeTests
 {
+	private const string _modulePath = "./_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js";
+
 	private static TestContext CreateContext()
 	{
 		var context = new TestContext();
@@ -129,7 +131,7 @@ public class AdaptiveVirtualizeTests
 	{
 		// Arrange
 		using var context = CreateContext();
-		var module = context.JSInterop.SetupModule("./_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js");
+		var module = context.JSInterop.SetupModule(_modulePath);
 		var instance = module.SetupModule(invocation => invocation.Identifier == "create");
 		instance.SetupVoid("dispose").SetException(new JSException("JS object instance with ID 20 does not exist (has it been disposed?)"));
 		var component = RenderWith(context, ["a"]);
@@ -140,5 +142,55 @@ public class AdaptiveVirtualizeTests
 		// Assert
 		await Should.NotThrowAsync(dispose);
 		instance.VerifyInvoke("dispose");
+	}
+
+	[Theory]
+	[InlineData("setOptions")]
+	[InlineData("setItems")]
+	[InlineData("measureRenderedRows")]
+	public async Task DisposeAsync_WhileARenderAwaitsTheJSInstance_ThatRenderGoesNoFurther(string callInFlight)
+	{
+		// Arrange
+		using var context = CreateContext();
+		var module = context.JSInterop.SetupModule(_modulePath);
+		var instance = module.SetupModule(invocation => invocation.Identifier == "create");
+		var heldCall = instance.SetupVoid(callInFlight, _ => true);
+		var jsDispose = instance.SetupVoid("dispose");
+		var component = RenderWith(context, ["a"]);
+		var layoutMeasuredCount = 0;
+
+		// New options and new items in one render: OnAfterRenderAsync awaits setOptions, setItems and
+		// measureRenderedRows in turn, then calls OnLayoutMeasured. The call under test stays in
+		// flight; the others answer at once.
+		component.SetParametersAndRender(parameters => parameters
+			.Add(p => p.Options, new VirtualizeOptions())
+			.Add(p => p.Items, (IReadOnlyList<string>) ["a", "b"])
+			.Add(p => p.OnLayoutMeasured, (Func<Task>) (() =>
+			{
+				layoutMeasuredCount++;
+				return Task.CompletedTask;
+			})));
+
+		// Act
+		var disposal = component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		heldCall.SetVoidResult();
+		// The render's continuation was queued on the renderer's dispatcher by the line above, so a
+		// no-op behind it only completes once that continuation has run.
+		await component.InvokeAsync(() => { });
+		jsDispose.SetVoidResult();
+		await disposal;
+
+		// Assert
+		// Anything after the call in flight would go to an instance disposal is releasing. Depending on
+		// how far disposal has got, that either reaches the instance after its dispose call or throws
+		// on the render path - which the renderer reports, so both are checked.
+		string[] renderCalls = ["setOptions", "setItems", "measureRenderedRows"];
+		foreach (var laterCall in renderCalls.SkipWhile(call => call != callInFlight).Skip(1))
+		{
+			instance.VerifyNotInvoke(laterCall);
+		}
+
+		layoutMeasuredCount.ShouldBe(0);
+		context.Renderer.UnhandledException.IsCompleted.ShouldBeFalse();
 	}
 }
