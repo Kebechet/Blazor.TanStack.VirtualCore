@@ -211,6 +211,84 @@ public sealed class InteropModuleTests
         _fixture.AssertNoJsErrors();
     }
 
+    [Fact]
+    public async Task ScrollToIndex_WhileATouchFlingIsMovingTheList_StopsTheMomentumBeforeWriting()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var runs = await _fixture.Page.EvaluateAsync<CommandSample[]>(
+            "async () => {" + _mountScript + @"
+                const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+                const jumpWhileMoving = async byTouch => {
+                    const list = mount(200, {}, (totalSize, root) =>
+                        setTimeout(() => { root.style.height = `${totalSize}px`; }, 30));
+                    await delay(100);
+
+                    // The input that set the list moving: a touch that has already lifted - a fling -
+                    // or the mouse wheel. A real fling cannot be produced here, so the momentum is the
+                    // list being scrolled on after the input.
+                    if (byTouch) {
+                        list.viewport.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+                        list.viewport.dispatchEvent(new TouchEvent('touchstart', { bubbles: true }));
+                        list.viewport.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+                    } else {
+                        list.viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: 300, bubbles: true }));
+                    }
+                    list.viewport.scrollTop = 300;
+                    await nextFrame();
+                    list.viewport.scrollTop = 600;
+                    await nextFrame();
+
+                    const command = list.instance.scrollToIndex(100, 'start', 'auto');
+                    const sample = {
+                        overflowWhenIssued: list.viewport.style.getPropertyValue('overflow-y'),
+                        scrollTopWhenIssued: list.viewport.scrollTop,
+                    };
+                    await command;
+                    await delay(100);
+                    sample.overflowAfterwards = list.viewport.style.getPropertyValue('overflow-y');
+                    sample.scrollTopAfterwards = list.viewport.scrollTop;
+                    list.instance.dispose();
+                    list.viewport.remove();
+                    return sample;
+                };
+                return [await jumpWhileMoving(true), await jumpWhileMoving(false)];
+            }");
+
+        // Assert
+        // Android Chrome carries a fling on after a programmatic scroll write, so the jump would land
+        // wherever the momentum takes it. Hiding the overflow for two frames is what stops it.
+        var touch = runs[0];
+        Assert.Equal("hidden", touch.OverflowWhenIssued);
+        Assert.Equal(600, touch.ScrollTopWhenIssued);
+        Assert.Equal("auto", touch.OverflowAfterwards);
+        Assert.Equal(5000, touch.ScrollTopAfterwards);
+
+        // Nothing to stop after the wheel - on a desktop, hiding the overflow would also hide a
+        // classic scrollbar and reflow the list - so the write goes out at once.
+        var wheel = runs[1];
+        Assert.Equal("auto", wheel.OverflowWhenIssued);
+        Assert.Equal(5000, wheel.ScrollTopWhenIssued);
+        _fixture.AssertNoJsErrors();
+    }
+
+    private sealed class CommandSample
+    {
+        [JsonPropertyName("overflowWhenIssued")]
+        public string OverflowWhenIssued { get; set; } = "";
+
+        [JsonPropertyName("scrollTopWhenIssued")]
+        public double ScrollTopWhenIssued { get; set; }
+
+        [JsonPropertyName("overflowAfterwards")]
+        public string OverflowAfterwards { get; set; } = "";
+
+        [JsonPropertyName("scrollTopAfterwards")]
+        public double ScrollTopAfterwards { get; set; }
+    }
+
     private sealed class RangeSample
     {
         [JsonPropertyName("startIndex")]

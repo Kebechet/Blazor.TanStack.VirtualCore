@@ -47,6 +47,13 @@ function compact(source) {
 	return result;
 }
 
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+
+/** virtual-core's own iOS WebKit test, iPadOS desktop-class Safari included. */
+function isIOSWebKit() {
+	return /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 0);
+}
+
 class AdaptiveVirtualizeInstance {
 	// Keys and sizes arrive as two parallel arrays rather than one array of objects: this covers the
 	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON on
@@ -70,6 +77,22 @@ class AdaptiveVirtualizeInstance {
 		// Chrome. Skipping already-measured keys drops a scroll-time measure pass from 100-1000 ms
 		// to a few ms: only freshly virtualized items pay the cost.
 		this.measuredKeys = new Set();
+
+		// What runScrollCommand needs to know about the user's input. Listened for on the window, so a
+		// tap on a button outside the list counts too - that tap is how a jump gets issued mid-fling.
+		this.touchActive = false;
+		this.lastInputWasTouch = false;
+		this.momentumStop = null;
+		this.inputListeners = {
+			pointerdown: event => { this.lastInputWasTouch = event.pointerType === 'touch'; },
+			wheel: () => { this.lastInputWasTouch = false; },
+			touchstart: () => { this.touchActive = true; },
+			touchend: () => { this.touchActive = false; },
+			touchcancel: () => { this.touchActive = false; },
+		};
+		for (const [type, listener] of Object.entries(this.inputListeners)) {
+			window.addEventListener(type, listener, { capture: true, passive: true });
+		}
 
 		this.virtualizer = new Virtualizer(this.buildVirtualizerOptions());
 
@@ -434,19 +457,59 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	scrollToIndex(index, align, behavior) {
-		this.virtualizer.scrollToIndex(index, { align, behavior });
+		return this.runScrollCommand(() => this.virtualizer.scrollToIndex(index, { align, behavior }));
 	}
 
 	scrollToOffset(offset, align, behavior) {
-		this.virtualizer.scrollToOffset(offset, { align, behavior });
+		return this.runScrollCommand(() => this.virtualizer.scrollToOffset(offset, { align, behavior }));
 	}
 
 	scrollToEnd(behavior) {
-		this.virtualizer.scrollToEnd({ behavior });
+		return this.runScrollCommand(() => this.virtualizer.scrollToEnd({ behavior }));
 	}
 
 	scrollBy(delta, behavior) {
-		this.virtualizer.scrollBy(delta, { behavior });
+		return this.runScrollCommand(() => this.virtualizer.scrollBy(delta, { behavior }));
+	}
+
+	/**
+	 * Runs a scroll command, first stopping a touch fling that is still moving the list. Android
+	 * Chrome carries a fling on after a programmatic scroll write, so a jump issued mid-fling lands
+	 * wherever the momentum takes it instead of on its target. iOS WebKit stops the fling on the
+	 * write before iOS 27, and from 27 on virtual-core stops it itself, so iOS is left alone.
+	 *
+	 * Hiding the scroll axis's overflow for two frames is what stops the momentum - the same trick
+	 * virtual-core uses on iOS 27. Its own _stopMomentum is not reused: it is private, and it drops
+	 * the callback of a command superseded mid-stop, which would leave that command's caller
+	 * awaiting forever. Without a touch there is no fling to stop, and on a desktop hiding the
+	 * overflow would also hide a classic scrollbar and reflow the list, so the write goes out at once.
+	 */
+	async runScrollCommand(command) {
+		const isTouchFling = this.lastInputWasTouch && !this.touchActive
+			&& this.virtualizer.isScrolling === true && !isIOSWebKit();
+		if (isTouchFling) {
+			// Shared by every command issued during the same stop, so none of them reads back the
+			// "hidden" another one set as the value to restore.
+			this.momentumStop ??= this.stopMomentum().finally(() => { this.momentumStop = null; });
+			await this.momentumStop;
+			if (!this.cleanupMount) {
+				return;
+			}
+		}
+
+		command();
+	}
+
+	async stopMomentum() {
+		const element = this.isWindowScroller ? this.findScrollContainer(this.rootElement) : this.scrollContainer;
+		const property = this.options.horizontal ? 'overflow-x' : 'overflow-y';
+		const { style } = element;
+		const value = style.getPropertyValue(property);
+		const priority = style.getPropertyPriority(property);
+		style.setProperty(property, 'hidden', 'important');
+		await nextFrame();
+		await nextFrame();
+		style.setProperty(property, value, priority);
 	}
 
 	cancelScroll() {
@@ -514,6 +577,9 @@ class AdaptiveVirtualizeInstance {
 	dispose() {
 		this.containerObserver?.disconnect();
 		clearTimeout(this.pendingNotification);
+		for (const [type, listener] of Object.entries(this.inputListeners)) {
+			window.removeEventListener(type, listener, { capture: true });
+		}
 		if (this.cleanupMount) {
 			try { this.cleanupMount(); } catch { /* already torn down */ }
 			this.cleanupMount = null;
