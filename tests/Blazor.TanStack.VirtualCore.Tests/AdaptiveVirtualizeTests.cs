@@ -1,6 +1,7 @@
 using System.Globalization;
 using Bunit;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
 using Shouldly;
 using Xunit;
@@ -192,5 +193,111 @@ public class AdaptiveVirtualizeTests
 
 		layoutMeasuredCount.ShouldBe(0);
 		context.Renderer.UnhandledException.IsCompleted.ShouldBeFalse();
+	}
+
+	[Fact]
+	public async Task DisposeAsync_WhileTheModuleIsBeingImported_ReleasesItAndNeverCreatesAnInstance()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var module = new FakeJS();
+		var runtime = new FakeJS().Returning("import", module);
+		runtime.Hold("import");
+		context.Services.AddSingleton<IJSRuntime>(runtime);
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		runtime.Answer("import");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		module.Calls.ShouldBeEmpty();
+		module.IsReleased.ShouldBeTrue();
+	}
+
+	[Fact]
+	public async Task DisposeAsync_WhileTheJSInstanceIsBeingCreated_ReleasesItOnceItArrives()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS();
+		var module = new FakeJS().Returning("create", instance);
+		module.Hold("create");
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+		var selfRef = (DotNetObjectReference<AdaptiveVirtualize<string>>) module.Calls.Single().Args![1]!;
+
+		// Act
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		// The instance on its way was constructed with this reference and can call it the moment it
+		// exists, so disposal must not have released it yet.
+		Should.NotThrow(() => selfRef.Value);
+		module.Answer("create");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		// Left unreleased, the instance keeps its scroll and resize observers attached for the life
+		// of the page.
+		instance.Calls.Select(call => call.Identifier).ShouldBe(["dispose"]);
+		instance.IsReleased.ShouldBeTrue();
+		module.IsReleased.ShouldBeTrue();
+		Should.Throw<ObjectDisposedException>(() => selfRef.Value);
+	}
+
+	/// <summary>
+	/// Stands in for the runtime, the module and the instance alike, whose call surfaces are
+	/// identical. Hand-rolled because bUnit's module stand-ins always answer at once, and these tests
+	/// need a call still in flight when the component is disposed.
+	/// </summary>
+	private sealed class FakeJS : IJSRuntime, IJSObjectReference
+	{
+		private readonly Dictionary<string, object?> _results = [];
+		private readonly Dictionary<string, TaskCompletionSource> _heldCalls = [];
+
+		public List<(string Identifier, object?[]? Args)> Calls { get; } = [];
+
+		public bool IsReleased { get; private set; }
+
+		public FakeJS Returning(string identifier, object? result)
+		{
+			_results[identifier] = result;
+			return this;
+		}
+
+		/// <summary>Leaves calls to <paramref name="identifier"/> unanswered until <see cref="Answer"/>.</summary>
+		public void Hold(string identifier)
+		{
+			_heldCalls[identifier] = new TaskCompletionSource();
+		}
+
+		public void Answer(string identifier)
+		{
+			_heldCalls[identifier].SetResult();
+		}
+
+		public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
+		{
+			return InvokeAsync<TValue>(identifier, CancellationToken.None, args);
+		}
+
+		public async ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
+		{
+			Calls.Add((identifier, args));
+			if (_heldCalls.TryGetValue(identifier, out var heldCall))
+			{
+				// Resumes on the thread calling Answer rather than queueing behind the renderer, so the
+				// component's own continuation is already queued by the time Answer returns.
+				await heldCall.Task.ConfigureAwait(false);
+			}
+
+			return (TValue) _results.GetValueOrDefault(identifier)!;
+		}
+
+		public ValueTask DisposeAsync()
+		{
+			IsReleased = true;
+			return ValueTask.CompletedTask;
+		}
 	}
 }
