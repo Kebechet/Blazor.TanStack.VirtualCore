@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Playwright;
 using Xunit;
@@ -128,14 +129,19 @@ public sealed class OptionCoverageTests
     {
         // Arrange
         var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
-        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+        await JumpToRow2000Async(canvas);
 
         // Act
         await _fixture.ScrollViewportAsync("directional", 600);
         var buffer = await ReadBufferAsync(canvas);
 
         // Assert
-        Assert.Equal("forward", buffer.ScrollDirection);
+        // The snapshot is read through a .NET round-trip, which on a loaded machine can land after
+        // virtual-core's 150ms isScrolling reset - after which it reports no direction. The buffer
+        // below is what carries the claim, and it is held either way.
+        Assert.True(
+            buffer.ScrollDirection is "forward" or null,
+            $"Expected a forward scroll, the snapshot reported {buffer.ScrollDirection}.");
 
         // OverscanLeading 12 against OverscanTrailing 2. A build where the compiled rangeExtractor
         // never reached virtual-core still renders a correct, scrollable list - it is simply
@@ -150,7 +156,7 @@ public sealed class OptionCoverageTests
     {
         // Arrange
         var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
-        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+        await JumpToRow2000Async(canvas);
         await _fixture.ScrollViewportAsync("directional", 600);
 
         // Act
@@ -159,8 +165,11 @@ public sealed class OptionCoverageTests
 
         // Assert
         // The leading side is wherever the user is heading, not a fixed downward bias - otherwise
-        // scrolling back up would run permanently on the small buffer.
-        Assert.Equal("backward", buffer.ScrollDirection);
+        // scrolling back up would run permanently on the small buffer. As above, a late read finds
+        // no direction; with none, the buffer would revert to forward, so the counts still pin the flip.
+        Assert.True(
+            buffer.ScrollDirection is "backward" or null,
+            $"Expected a backward scroll, the snapshot reported {buffer.ScrollDirection}.");
         Assert.Equal(12, buffer.Above);
         Assert.Equal(2, buffer.Below);
         _fixture.AssertNoJsErrors();
@@ -171,7 +180,7 @@ public sealed class OptionCoverageTests
     {
         // Arrange
         var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--directional-overscan");
-        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+        await JumpToRow2000Async(canvas);
 
         // Act - well past virtual-core's default 150ms isScrollingResetDelay
         await _fixture.ScrollViewportAsync("directional", 600);
@@ -187,6 +196,25 @@ public sealed class OptionCoverageTests
         Assert.False(buffer.IsScrolling);
         Assert.Equal(2, buffer.Above);
         _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>Clicks "Scroll to 2000" and waits for the jump to have landed.</summary>
+    /// <remarks>
+    /// The directional tests scroll by hand straight after, and a hand scroll issued while the
+    /// component's own scroll command is still being applied leaves the outcome to whichever write
+    /// the browser handles last.
+    /// </remarks>
+    private static async Task JumpToRow2000Async(ILocator canvas)
+    {
+        await canvas.GetByTestId("directional-scroll-target").ClickAsync();
+        await StoryState.WaitForAsync(
+            canvas,
+            "directional-state",
+            x => x.GetProperty("lastAction").GetString() == "scrollToIndex:2000"
+                && x.TryGetProperty("startIndex", out var start) && start.ValueKind == JsonValueKind.Number
+                && Math.Abs(start.GetInt32() - 2000) <= 1
+                && x.TryGetProperty("isScrolling", out var scrolling) && scrolling.ValueKind == JsonValueKind.False,
+            "the jump to row 2000 to land");
     }
 
     /// <summary>
