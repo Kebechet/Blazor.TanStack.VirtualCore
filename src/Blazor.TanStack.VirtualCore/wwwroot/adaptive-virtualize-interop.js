@@ -63,6 +63,8 @@ class AdaptiveVirtualizeInstance {
 		this.lastVirtualItems = null;
 		this.lastTotalSize = -1;
 		this.suppressNotifications = false;
+		this.pendingNotification = null;
+		this.insideResizeObserver = false;
 		// Keys already measured during the current item-set lifetime. measureElement forces a
 		// layout (getBoundingClientRect), which on iOS WKWebView is 10-50x more expensive than on
 		// Chrome. Skipping already-measured keys drops a scroll-time measure pass from 100-1000 ms
@@ -79,7 +81,10 @@ class AdaptiveVirtualizeInstance {
 		// after every commit. Here the container is sized by a Blazor render one interop round-trip
 		// after onChange, so the container resizing is that commit.
 		this.containerObserver = typeof ResizeObserver === 'function'
-			? new ResizeObserver(() => this.virtualizer._willUpdate())
+			? new ResizeObserver(() => {
+				this.markInsideResizeObserver();
+				this.virtualizer._willUpdate();
+			})
 			: null;
 		this.containerObserver?.observe(rootElement);
 
@@ -112,7 +117,12 @@ class AdaptiveVirtualizeInstance {
 			count: this.itemKeys.length,
 			estimateSize: (index) => this.itemSizes[index] ?? this.estimatedItemSize,
 			getItemKey: (index) => this.itemKeys[index] ?? String(index),
-			measureElement,
+			measureElement: (element, entry, instance) => {
+				if (entry) {
+					this.markInsideResizeObserver();
+				}
+				return measureElement(element, entry, instance);
+			},
 			onChange: () => this.notifyChange(),
 		};
 
@@ -124,7 +134,10 @@ class AdaptiveVirtualizeInstance {
 		} else {
 			resolved.getScrollElement = () => this.scrollContainer;
 			resolved.observeElementOffset = observeElementOffset;
-			resolved.observeElementRect = observeElementRect;
+			resolved.observeElementRect = (instance, callback) => observeElementRect(instance, rect => {
+				this.markInsideResizeObserver();
+				callback(rect);
+			});
 			resolved.scrollToFn = elementScroll;
 		}
 
@@ -240,10 +253,42 @@ class AdaptiveVirtualizeInstance {
 		this.notifyChange();
 	}
 
+	/**
+	 * Called from every ResizeObserver callback that can end in a notification. Blazor WebAssembly
+	 * runs the .NET handler of invokeMethodAsync - and the render it queues - synchronously, so a
+	 * notification sent from inside the callback rewrites the DOM in the middle of the browser's
+	 * resize-observation step. Rows that render adds or resizes can only be observed a frame later,
+	 * and the browser reports that as a window error, "ResizeObserver loop completed with
+	 * undelivered notifications", which error trackers record. virtual-core 3.19 measures a whole
+	 * batch before notifying, which made it far more frequent than under 3.17.
+	 *
+	 * The flag lasts until the callback returns - the microtask - and notifyChange sends anything
+	 * raised meanwhile one task later, as a single notification.
+	 */
+	markInsideResizeObserver() {
+		if (!this.insideResizeObserver) {
+			this.insideResizeObserver = true;
+			queueMicrotask(() => { this.insideResizeObserver = false; });
+		}
+	}
+
 	notifyChange() {
 		if (this.suppressNotifications) {
 			return;
 		}
+
+		if (this.insideResizeObserver) {
+			if (this.pendingNotification === null) {
+				this.pendingNotification = setTimeout(() => {
+					this.pendingNotification = null;
+					this.notifyChange();
+				}, 0);
+			}
+			return;
+		}
+
+		clearTimeout(this.pendingNotification);
+		this.pendingNotification = null;
 
 		const virtualItems = this.virtualizer.getVirtualItems();
 		const totalSize = this.virtualizer.getTotalSize();
@@ -468,6 +513,7 @@ class AdaptiveVirtualizeInstance {
 
 	dispose() {
 		this.containerObserver?.disconnect();
+		clearTimeout(this.pendingNotification);
 		if (this.cleanupMount) {
 			try { this.cleanupMount(); } catch { /* already torn down */ }
 			this.cleanupMount = null;

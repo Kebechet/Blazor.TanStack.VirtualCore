@@ -88,6 +88,13 @@ public sealed class DemoFixture : IAsyncLifetime
             ViewportSize = new ViewportSize { Width = 1280, Height = 1000 }
         });
 
+        // Playwright reports an uncaught exception as a page error, but an error event that carries
+        // no exception reaches neither PageError nor the console - and "ResizeObserver loop completed
+        // with undelivered notifications" is exactly that, while error trackers in an app do record
+        // it. Forwarded to the console, it fails AssertNoJsErrors like anything else.
+        await Page.AddInitScriptAsync(
+            "window.addEventListener('error', e => { if (!e.error) console.error(`window error: ${e.message}`); });");
+
         Page.Console += (_, message) =>
         {
             if (message.Type == "error" && !IsUnrelatedNoise(message.Text))

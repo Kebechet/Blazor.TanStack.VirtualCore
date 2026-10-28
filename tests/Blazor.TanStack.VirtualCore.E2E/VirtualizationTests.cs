@@ -112,6 +112,30 @@ public sealed class VirtualizationTests
     }
 
     [Fact]
+    public async Task VariableHeights_ScrollingQuickly_RaisesNoWindowErrors()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--variable-heights");
+
+        // Act
+        // Every step brings unmeasured rows into view, so nearly every frame carries a measurement
+        // pass from virtual-core's ResizeObserver.
+        await _fixture.Page.EvalOnSelectorAsync(
+            "[data-testid=\"variable-viewport\"]",
+            @"async viewport => {
+                const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+                for (let step = 0; step < 25; step++) { viewport.scrollTop += 700; await nextFrame(); await nextFrame(); }
+                for (let step = 0; step < 25; step++) { viewport.scrollTop -= 700; await nextFrame(); await nextFrame(); }
+            }");
+        await Task.Delay(500);
+
+        // Assert
+        // Rendering from inside that observer's callback surfaces as "ResizeObserver loop completed
+        // with undelivered notifications" - a window error an app's error tracker records.
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
     public async Task ScrollToIndex_LandsOnTheRequestedRow()
     {
         // Arrange
