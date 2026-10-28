@@ -274,6 +274,32 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Fact]
+	public async Task Render_ParametersChangeWhileTheJSInstanceIsBeingCreated_ReachItOnceCreated()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS();
+		var module = new FakeJS().Returning("create", instance);
+		module.Hold("create");
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		// Rendered while create is in flight, so OnAfterRenderAsync finds no instance to send them to.
+		component.SetParametersAndRender(parameters => parameters
+			.Add(p => p.Options, new VirtualizeOptions())
+			.Add(p => p.Items, (IReadOnlyList<string>) ["a", "b"]));
+		module.Answer("create");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		// The instance was created from the item set and options of the first render, so without
+		// these it keeps virtualizing the old item set until the next change happens to come along.
+		instance.Calls.Select(call => call.Identifier).ShouldContain("setOptions");
+		instance.Calls.Select(call => call.Identifier).ShouldContain("setItems");
+	}
+
+	[Fact]
 	public async Task DisposeAsync_InteropCallsTimeOut_StillRunsTheRestOfTheCleanup()
 	{
 		// Arrange
