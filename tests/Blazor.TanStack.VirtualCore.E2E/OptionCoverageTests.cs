@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.Playwright;
 using Xunit;
 
@@ -286,19 +287,91 @@ public sealed class OptionCoverageTests
     }
 
     [Fact]
-    public async Task IsRtl_RendersWithoutInteropErrors()
+    public async Task IsRtl_RailStartsOnTheRight_AndVirtualizesAsItScrollsLeft()
     {
         // Arrange
         await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--right-to-left");
+        var atStart = await ReadRtlRailAsync(targetIndex: 0);
 
         // Act
-        var rows = await _fixture.ReadRenderedRowsAsync();
+        // In a right-to-left container scrollLeft starts at 0 and goes negative as the user moves on.
+        await _fixture.Page.EvalOnSelectorAsync("[data-testid=\"rtl-viewport\"]", "el => el.scrollLeft -= 4000");
+        await Task.Delay(1000);
+        var scrolled = await ReadRtlRailAsync(targetIndex: 0);
 
         // Assert
-        // RTL flips the direction offsets are measured in; the observable claim here is simply that
-        // the combination of IsHorizontal and IsRtl still produces a laid-out list rather than
-        // throwing inside virtual-core.
-        Assert.True(rows.Count > 1, "Expected an RTL horizontal list to render items.");
+        // Item 0 sits against the right edge, where a right-to-left reader starts.
+        Assert.True(
+            Math.Abs(atStart.TargetRight - atStart.ViewportRight) <= 2,
+            $"Expected item 0 against the viewport's right edge ({atStart.ViewportRight}), it ends at {atStart.TargetRight}.");
+        // 4000px on, the rendered window has moved with the scroll and is what is on screen - not
+        // the blank space past items that were never rendered.
+        Assert.True(scrolled.FirstIndex > 0, $"Expected the rendered window to move on, it still starts at {scrolled.FirstIndex}.");
+        Assert.True(scrolled.VisibleItems > 0, "Expected rendered items on screen after scrolling, there were none.");
         _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task IsRtl_ScrollToIndex_BringsTheItemOnScreen()
+    {
+        // Arrange
+        var canvas = await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--right-to-left");
+
+        // Act
+        await canvas.GetByTestId("rtl-scroll-target").ClickAsync();
+        await Task.Delay(1000);
+        var rail = await ReadRtlRailAsync(targetIndex: 500);
+
+        // Assert
+        // virtual-core reads the offset negated under isRtl but writes it as is, and a positive
+        // scrollLeft in a right-to-left container clamps to the start - the jump would go nowhere.
+        Assert.True(rail.TargetVisible, $"Expected item 500 on screen; the rendered window is {rail.FirstIndex}-{rail.LastIndex}.");
+        _fixture.AssertNoJsErrors();
+    }
+
+    private async Task<RtlRail> ReadRtlRailAsync(int targetIndex)
+    {
+        return await _fixture.Page.EvaluateAsync<RtlRail>(
+            @"targetIndex => {
+                const viewport = document.querySelector('[data-testid=""rtl-viewport""]');
+                const box = viewport.getBoundingClientRect();
+                // The content box: inside the border, which is what the rail is laid out against.
+                const left = box.left + viewport.clientLeft;
+                const right = left + viewport.clientWidth;
+                const items = Array.from(document.querySelectorAll('[data-index]'))
+                    .map(el => ({ index: +el.getAttribute('data-index'), rect: el.getBoundingClientRect() }));
+                const onScreen = rect => rect.right > left + 1 && rect.left < right - 1;
+                const target = items.find(item => item.index === targetIndex);
+                return {
+                    viewportRight: right,
+                    targetRight: target ? target.rect.right : -1,
+                    targetVisible: !!target && onScreen(target.rect),
+                    firstIndex: Math.min(...items.map(item => item.index)),
+                    lastIndex: Math.max(...items.map(item => item.index)),
+                    visibleItems: items.filter(item => onScreen(item.rect)).length,
+                };
+            }",
+            targetIndex);
+    }
+
+    private sealed class RtlRail
+    {
+        [JsonPropertyName("viewportRight")]
+        public double ViewportRight { get; set; }
+
+        [JsonPropertyName("targetRight")]
+        public double TargetRight { get; set; }
+
+        [JsonPropertyName("targetVisible")]
+        public bool TargetVisible { get; set; }
+
+        [JsonPropertyName("firstIndex")]
+        public int FirstIndex { get; set; }
+
+        [JsonPropertyName("lastIndex")]
+        public int LastIndex { get; set; }
+
+        [JsonPropertyName("visibleItems")]
+        public int VisibleItems { get; set; }
     }
 }

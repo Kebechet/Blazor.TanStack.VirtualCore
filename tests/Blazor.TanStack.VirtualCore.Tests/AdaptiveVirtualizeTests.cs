@@ -70,6 +70,31 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Fact]
+	public async Task Render_HorizontalRtl_PlacesItemsFromTheRightEdge()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var component = RenderWith(context, ["a", "b"]);
+		component.SetParametersAndRender(parameters => parameters
+			.Add(p => p.Options, new VirtualizeOptions { IsHorizontal = true, IsRtl = true }));
+
+		// Act
+		await component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 12.5, End = 12.5, Key = "a" },
+				new VirtualItem { Index = 1, Start = 12.5, Size = 12.5, End = 25, Key = "b" },
+			],
+			totalSize: 25));
+
+		// Assert
+		// virtual-core's offsets run from where reading starts, the right edge under IsRtl.
+		var markup = component.Markup;
+		markup.ShouldContain("right:0");
+		markup.ShouldContain("translateX(-12.5px)");
+		markup.ShouldNotContain("left:0");
+	}
+
+	[Fact]
 	public void Render_KeyMismatchBetweenPlacementAndItem_SkipsThatRow()
 	{
 		// Arrange
