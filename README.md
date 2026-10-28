@@ -129,6 +129,8 @@ var snapshot = await _virtualize.GetSnapshot();
 var measurements = await _virtualize.TakeSnapshot();
 ```
 
+These are safe to fire off without awaiting while the component may be going away. Called after disposal they do nothing, and one still in flight when the component is disposed completes without throwing: a query returns its default, and the failure is logged - at Debug when the JS side simply went away.
+
 ### Two-phase rendering
 
 ### Directional overscan

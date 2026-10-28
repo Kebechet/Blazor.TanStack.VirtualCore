@@ -290,7 +290,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         if (!ReferenceEquals(_lastOptionsRef, Options))
         {
             _lastOptionsRef = Options;
-            await _jsInstance.InvokeVoidAsync("setOptions", Options);
+            await InvokeInstance("setOptions", Options);
 
             // The component can be disposed during any await here, and disposal releases the
             // instance. Every call this render made after that point would fail on the render path.
@@ -310,7 +310,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             // setItems.
             _lastItemsRef = Items;
             BuildDescriptors();
-            await _jsInstance.InvokeVoidAsync("setItems", _itemKeys, _itemSizes);
+            await InvokeInstance("setItems", _itemKeys, _itemSizes);
 
             if (_isDisposed)
             {
@@ -346,7 +346,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         _lastMeasuredFirstIndex = firstIndex;
         _lastMeasuredLastIndex = lastIndex;
 
-        await _jsInstance.InvokeVoidAsync("measureRenderedRows");
+        await InvokeInstance("measureRenderedRows");
 
         if (_isDisposed)
         {
@@ -479,6 +479,13 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         return await QueryInstance<VirtualItem[]>("takeSnapshot") ?? [];
     }
 
+    /// <summary>Calls a method on the JS instance; a call made after disposal does nothing.</summary>
+    /// <remarks>
+    /// A call still in flight when the component is disposed can fail once the JS side goes away -
+    /// in a reloaded BlazorWebView the page no longer holds the instance - and is then logged rather
+    /// than thrown: the list it was meant for is gone, and a caller that fired it off without
+    /// awaiting would see it only as an unobserved task exception, a render as an unhandled one.
+    /// </remarks>
     private async Task InvokeInstance(string method, params object?[] args)
     {
         if (_jsInstance is null)
@@ -486,9 +493,17 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             return;
         }
 
-        await _jsInstance.InvokeVoidAsync(method, args);
+        try
+        {
+            await _jsInstance.InvokeVoidAsync(method, args);
+        }
+        catch (Exception exception) when (_isDisposed)
+        {
+            LogTeardownFailure(exception, $"calling {method}");
+        }
     }
 
+    /// <summary>Like <see cref="InvokeInstance"/>; a query cut off by disposal returns the default.</summary>
     private async Task<TResult?> QueryInstance<TResult>(string method, params object?[] args)
     {
         if (_jsInstance is null)
@@ -496,7 +511,15 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             return default;
         }
 
-        return await _jsInstance.InvokeAsync<TResult>(method, args);
+        try
+        {
+            return await _jsInstance.InvokeAsync<TResult>(method, args);
+        }
+        catch (Exception exception) when (_isDisposed)
+        {
+            LogTeardownFailure(exception, $"calling {method}");
+            return default;
+        }
     }
 
     /// <summary>
