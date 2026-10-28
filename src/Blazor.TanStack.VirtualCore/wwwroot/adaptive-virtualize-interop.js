@@ -49,11 +49,6 @@ function compact(source) {
 
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
 
-/** virtual-core's own iOS WebKit test, iPadOS desktop-class Safari included. */
-function isIOSWebKit() {
-	return /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 0);
-}
-
 class AdaptiveVirtualizeInstance {
 	// Keys and sizes arrive as two parallel arrays rather than one array of objects: this covers the
 	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON on
@@ -485,41 +480,54 @@ class AdaptiveVirtualizeInstance {
 	/**
 	 * Runs a scroll command, first stopping a touch fling that is still moving the list. Android
 	 * Chrome carries a fling on after a programmatic scroll write, so a jump issued mid-fling lands
-	 * wherever the momentum takes it instead of on its target. iOS WebKit stops the fling on the
-	 * write before iOS 27, and from 27 on virtual-core stops it itself, so iOS is left alone.
+	 * wherever the momentum takes it instead of on its target. virtual-core stops a fling before a
+	 * command only on iOS 27; this stands in for the rest until
+	 * https://github.com/TanStack/virtual/pull/1347 ships, and goes away with it.
 	 *
 	 * Hiding the scroll axis's overflow for two frames is what stops the momentum - the same trick
-	 * virtual-core uses on iOS 27. Its own _stopMomentum is not reused: it is private, and it drops
-	 * the callback of a command superseded mid-stop, which would leave that command's caller
-	 * awaiting forever. Without a touch there is no fling to stop, and on a desktop hiding the
-	 * overflow would also hide a classic scrollbar and reflow the list, so the write goes out at once.
+	 * virtual-core uses on iOS 27. It runs on iOS too, where it is not needed (before 27 the write
+	 * stops the fling itself, and on 27 virtual-core does) and costs those two frames: telling the
+	 * platforms apart would take copying virtual-core's private user-agent checks. Its own
+	 * _stopMomentum is not reused: it is private, and it drops the callback of a command superseded
+	 * mid-stop, which would leave that command's caller awaiting forever. Without a touch there is
+	 * no fling to stop, and on a desktop hiding the overflow would also hide a classic scrollbar and
+	 * reflow the list, so the write goes out at once.
 	 */
 	async runScrollCommand(command) {
 		const isTouchFling = this.lastInputWasTouch && !this.touchActive
-			&& this.virtualizer.isScrolling === true && !isIOSWebKit();
+			&& this.virtualizer.isScrolling === true;
 		if (isTouchFling) {
 			// Shared by every command issued during the same stop, so none of them reads back the
 			// "hidden" another one set as the value to restore.
-			this.momentumStop ??= this.stopMomentum().finally(() => { this.momentumStop = null; });
-			await this.momentumStop;
-			if (!this.cleanupMount) {
-				return;
+			this.momentumStop ??= this.stopMomentum()?.finally(() => { this.momentumStop = null; }) ?? null;
+			if (this.momentumStop) {
+				await this.momentumStop;
+				if (!this.cleanupMount) {
+					return;
+				}
 			}
 		}
 
 		command();
 	}
 
-	async stopMomentum() {
+	/** Hides the scroll axis's overflow for two frames; null when it had to be put back at once. */
+	stopMomentum() {
 		const element = this.isWindowScroller ? this.findScrollContainer(this.rootElement) : this.scrollContainer;
 		const property = this.options.horizontal ? 'overflow-x' : 'overflow-y';
 		const { style } = element;
 		const value = style.getPropertyValue(property);
 		const priority = style.getPropertyPriority(property);
+		const crossSize = () => this.options.horizontal ? element.clientHeight : element.clientWidth;
+		const crossSizeBefore = crossSize();
 		style.setProperty(property, 'hidden', 'important');
-		await nextFrame();
-		await nextFrame();
-		style.setProperty(property, value, priority);
+		// A classic scrollbar takes layout space, so hiding it would reflow the list for two frames
+		// (a touchscreen laptop). Put it back before anything paints and write at once, as before.
+		if (crossSize() !== crossSizeBefore) {
+			style.setProperty(property, value, priority);
+			return null;
+		}
+		return nextFrame().then(nextFrame).then(() => style.setProperty(property, value, priority));
 	}
 
 	cancelScroll() {

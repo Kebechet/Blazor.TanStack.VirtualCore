@@ -221,9 +221,16 @@ public sealed class InteropModuleTests
         var runs = await _fixture.Page.EvaluateAsync<CommandSample[]>(
             "async () => {" + _mountScript + @"
                 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-                const jumpWhileMoving = async byTouch => {
+                const jumpWhileMoving = async (byTouch, classicScrollbar) => {
                     const list = mount(200, {}, (totalSize, root) =>
                         setTimeout(() => { root.style.height = `${totalSize}px`; }, 30));
+                    if (classicScrollbar) {
+                        // A scrollbar that takes 15px of the width while it shows; the browser
+                        // under test hides its scrollbars.
+                        Object.defineProperty(list.viewport, 'clientWidth', {
+                            get: () => list.viewport.style.overflowY === 'hidden' ? 300 : 285,
+                        });
+                    }
                     await delay(100);
 
                     // The input that set the list moving: a touch that has already lifted - a fling -
@@ -254,7 +261,7 @@ public sealed class InteropModuleTests
                     list.viewport.remove();
                     return sample;
                 };
-                return [await jumpWhileMoving(true), await jumpWhileMoving(false)];
+                return [await jumpWhileMoving(true, false), await jumpWhileMoving(false, false), await jumpWhileMoving(true, true)];
             }");
 
         // Assert
@@ -271,6 +278,13 @@ public sealed class InteropModuleTests
         var wheel = runs[1];
         Assert.Equal("auto", wheel.OverflowWhenIssued);
         Assert.Equal(5000, wheel.ScrollTopWhenIssued);
+
+        // A scrollbar that takes layout space would vanish for two frames and reflow the list (a
+        // touchscreen laptop), so the overflow is put back before anything paints and the write
+        // goes out at once.
+        var classicScrollbar = runs[2];
+        Assert.Equal("auto", classicScrollbar.OverflowWhenIssued);
+        Assert.Equal(5000, classicScrollbar.ScrollTopWhenIssued);
         _fixture.AssertNoJsErrors();
     }
 

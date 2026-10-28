@@ -180,6 +180,16 @@ The interop calls three underscore-prefixed virtual-core members: `_willUpdate()
 
 This is a real coupling: a virtual-core release could change them without it being a documented breaking change. It is why the package pins an exact version rather than floating, and why every version bump re-verifies those three members before shipping.
 
+## Stopgaps for upstream fixes
+
+Behaviour that belongs in virtual-core, carried here only until the upstream fix ships:
+
+| Behaviour | Upstream | Stopgap |
+|---|---|---|
+| A `ScrollToIndex`, `ScrollToOffset`, `ScrollToEnd` or `ScrollBy` issued by code while a touch fling is still moving the list overshoots its target on Android: Chrome carries the fling on from the written position. virtual-core stops the fling first only on iOS 27. | https://github.com/TanStack/virtual/pull/1347 (issue https://github.com/TanStack/virtual/issues/1346) | `runScrollCommand` in `wwwroot/adaptive-virtualize-interop.js` hides the scroll axis's overflow for two frames before the write. Pinned by `ScrollToIndex_WhileATouchFlingIsMovingTheList_StopsTheMomentumBeforeWriting`. |
+
+⚠️ **Remove the stopgap together with the bump to the virtual-core release that contains the fix.** Until then it also runs on iOS, where it is not needed and costs its two frames, because telling the platforms apart would mean copying virtual-core's private user-agent checks.
+
 ## Vendored library provenance
 
 | | |
