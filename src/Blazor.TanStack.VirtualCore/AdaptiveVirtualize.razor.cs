@@ -84,6 +84,8 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     private int _lastMeasuredFirstIndex = -1;
     private int _lastMeasuredLastIndex = -1;
 
+    private bool _isDisposed;
+
     /// <summary>
     /// Reusable interop buffers. Rebuilding these is O(items), so for a large set it is worth not
     /// reallocating them on every item-set change.
@@ -250,6 +252,13 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         {
             _lastOptionsRef = Options;
             await _jsInstance.InvokeVoidAsync("setOptions", Options);
+
+            // The component can be disposed during any await here, and disposal releases the
+            // instance. Every call this render made after that point would fail on the render path.
+            if (_isDisposed)
+            {
+                return;
+            }
         }
 
         var hasItemsChanged = !ReferenceEquals(_lastItemsRef, Items);
@@ -263,6 +272,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             _lastItemsRef = Items;
             BuildDescriptors();
             await _jsInstance.InvokeVoidAsync("setItems", _itemKeys, _itemSizes);
+
+            if (_isDisposed)
+            {
+                return;
+            }
         }
 
         var firstIndex = _virtualItems.Count > 0
@@ -294,6 +308,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         _lastMeasuredLastIndex = lastIndex;
 
         await _jsInstance.InvokeVoidAsync("measureRenderedRows");
+
+        if (_isDisposed)
+        {
+            return;
+        }
 
         if (OnLayoutMeasured is not null)
         {
@@ -463,6 +482,8 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _isDisposed = true;
+
         if (_jsInstance is not null)
         {
             try
