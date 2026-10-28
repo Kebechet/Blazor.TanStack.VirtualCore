@@ -234,6 +234,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 _jsModule = await _jsRuntime.InvokeAsync<IJSObjectReference>("import", _modulePath);
                 if (!_isDisposed)
                 {
+                    // Recorded before awaiting, as what the instance is created from. A change that
+                    // lands while create is in flight renders with no instance to send it to, so the
+                    // render queued below must still see it as a change.
+                    _lastItemsRef = Items;
+                    _lastOptionsRef = Options;
                     BuildDescriptors();
                     _jsInstance = await _jsModule.InvokeAsync<IJSObjectReference>(
                         "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
@@ -257,9 +262,6 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 await ReleaseJsAsync();
                 return;
             }
-
-            _lastItemsRef = Items;
-            _lastOptionsRef = Options;
 
             // The JS constructor notifies synchronously, so the first OnVirtualItemsChanged - and
             // the render it queues - can complete before the await above has assigned _jsInstance.
