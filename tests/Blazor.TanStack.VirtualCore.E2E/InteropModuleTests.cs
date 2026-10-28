@@ -48,23 +48,27 @@ public sealed class InteropModuleTests
         _fixture = fixture;
     }
 
-    [Fact]
-    public async Task Dispose_WithAResizeFrameAlreadyQueued_NeverNotifiesDotNetAgain()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Dispose_WithAResizeNotificationStillQueued_NeverNotifiesDotNetAgain(bool useAnimationFrame)
     {
         // Arrange
         await _fixture.NavigateToStoryAsync(_story);
 
         // Act
         var notificationsAfterDispose = await _fixture.Page.EvaluateAsync<int>(
-            "async () => {" + _mountScript + @"
-                const list = mount(100, { useAnimationFrameWithResizeObserver: true });
+            "async useAnimationFrame => {" + _mountScript + @"
+                const list = mount(100, { useAnimationFrameWithResizeObserver: useAnimationFrame });
                 await nextFrame();
                 await nextFrame();
 
-                // virtual-core's ResizeObserver defers its work to the next animation frame, which
-                // its teardown has to cancel - 3.17.7 did not, 3.19.4 onwards does. An observer
-                // created later on the same element is called straight after virtual-core's, so
-                // disposing from it lands between the frame being queued and it running.
+                // An observer created later on the same element is called straight after
+                // virtual-core's, so disposing from it lands while the resize's work is still
+                // queued. With useAnimationFrameWithResizeObserver virtual-core runs that work in an
+                // animation frame, which its teardown has to cancel - 3.17.7 did not, 3.19.4 onwards
+                // does. Either way, a notification raised by observer work goes out one task later
+                // through this module, which dispose has to cancel too.
                 let notificationsAtDispose = 0;
                 await new Promise(resolve => {
                     new ResizeObserver((_, observer) => {
@@ -80,7 +84,8 @@ public sealed class InteropModuleTests
 
                 list.viewport.remove();
                 return list.notifications - notificationsAtDispose;
-            }");
+            }",
+            useAnimationFrame);
 
         // Assert
         // In the app that notification targets a DotNetObjectReference released right after dispose,
