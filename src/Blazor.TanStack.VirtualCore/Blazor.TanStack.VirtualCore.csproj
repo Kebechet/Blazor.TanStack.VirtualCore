@@ -26,8 +26,12 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
-    <Version>3.19.8</Version>
-    <PackageReleaseNotes>Teardown fixes, IsRtl that works, and @tanstack/virtual-core 3.17.7 -&gt; 3.19.8.
+    <Version>3.19.8.1</Version>
+    <PackageReleaseNotes>3.19.8.1: interop calls cut off by disposal no longer throw.
+
+A ScrollToIndex, ScrollToOffset, ScrollToEnd, ScrollBy, ScrollToTop, CancelScroll, ResizeItem, Measure or InvalidateItemSize, or a GetTotalSize, GetVirtualIndexes, GetOffsetForIndex, GetVirtualItemForOffset, GetDistanceFromEnd, GetSnapshot or TakeSnapshot, that was still in flight when the component was disposed no longer throws once the JS side goes away - in a reloaded BlazorWebView it threw a JSException, and a caller that had not awaited it saw an unobserved task exception. A command now completes, a query returns its default, and the failure is logged through ILogger&lt;AdaptiveVirtualize&lt;TItem&gt;&gt;: at Debug for the known ways the JS side goes away, at Warning for anything else. The same holds for a render whose setOptions, setItems or measureRenderedRows was in flight, which surfaced as an unhandled render exception. A failure while the component is alive still throws. Callers no longer need a catch of their own around these calls for teardown.
+
+3.19.8: teardown fixes, IsRtl that works, and @tanstack/virtual-core 3.17.7 -&gt; 3.19.8.
 
 Teardown. DisposeAsync no longer throws a JSException ("JS object instance with ID n does not exist") when the component's JS object is already gone from the page: when a BlazorWebView's page reloads, the reloaded page's attach request disposes the previous page's renderer, so the dispose call reaches a page where the object never existed. Disposing while interop is still in flight is safe as well. A render stops calling into JS once disposal has started, instead of going on to fail on the render path. A module or instance whose import or create was still in flight is released when it arrives, instead of being left behind with its scroll and resize observers attached, and a failure or timeout of those calls after disposal neither escapes nor pins the component. On Blazor Server, an interop call that times out during disposal no longer skips the rest of the cleanup. Items or Options changed while the JS instance was still being created now reach it. Interop failures that teardown deliberately swallows are logged through ILogger&lt;AdaptiveVirtualize&lt;TItem&gt;&gt; instead of disappearing: at Debug for the known ways the JS side goes away, so they stay out of error trackers, and at Warning for anything else.
 
