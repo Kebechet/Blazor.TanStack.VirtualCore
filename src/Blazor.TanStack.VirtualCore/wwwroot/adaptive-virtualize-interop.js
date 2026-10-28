@@ -591,7 +591,14 @@ class AdaptiveVirtualizeInstance {
 			window.removeEventListener(type, listener, { capture: true });
 		}
 		if (this.cleanupMount) {
-			try { this.cleanupMount(); } catch { /* already torn down */ }
+			try {
+				this.cleanupMount();
+			} catch (error) {
+				// Not rethrown: .NET is disposing the component and has nothing to do about it, and
+				// the instance is abandoned either way. A warning rather than an error, because an
+				// error here would reach the app's error tracker for a list that is already gone.
+				console.warn('AdaptiveVirtualize: virtual-core teardown failed', error);
+			}
 			this.cleanupMount = null;
 		}
 	}

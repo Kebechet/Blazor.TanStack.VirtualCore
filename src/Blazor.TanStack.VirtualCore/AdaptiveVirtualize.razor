@@ -1,5 +1,6 @@
 @typeparam TItem
 @inject IJSRuntime _jsRuntime
+@inject ILogger<AdaptiveVirtualize<TItem>> _logger
 
 @* Keys, placements and the stale-row filtering are resolved in _rowsToRender, which recomputes only
    when the window, the item set or the options change. Doing it here meant several string
