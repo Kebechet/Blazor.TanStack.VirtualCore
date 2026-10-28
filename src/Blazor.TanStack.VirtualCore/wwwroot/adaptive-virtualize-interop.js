@@ -73,6 +73,16 @@ class AdaptiveVirtualizeInstance {
 
 		this.virtualizer._willUpdate();
 		this.cleanupMount = this.virtualizer._didMount();
+
+		// virtual-core re-issues a scroll write the browser clamped - the end anchor pushing past a
+		// container that has not grown yet - from _willUpdate, which its framework adapters call
+		// after every commit. Here the container is sized by a Blazor render one interop round-trip
+		// after onChange, so the container resizing is that commit.
+		this.containerObserver = typeof ResizeObserver === 'function'
+			? new ResizeObserver(() => this.virtualizer._willUpdate())
+			: null;
+		this.containerObserver?.observe(rootElement);
+
 		this.notifyChange();
 	}
 
@@ -453,6 +463,7 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	dispose() {
+		this.containerObserver?.disconnect();
 		if (this.cleanupMount) {
 			try { this.cleanupMount(); } catch { /* already torn down */ }
 			this.cleanupMount = null;
