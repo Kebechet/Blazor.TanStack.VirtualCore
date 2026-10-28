@@ -193,10 +193,13 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Theory]
-	[InlineData("setOptions")]
-	[InlineData("setItems")]
-	[InlineData("measureRenderedRows")]
-	public async Task DisposeAsync_WhileARenderAwaitsTheJSInstance_ThatRenderGoesNoFurther(string callInFlight)
+	[InlineData("setOptions", false)]
+	[InlineData("setItems", false)]
+	[InlineData("measureRenderedRows", false)]
+	[InlineData("setOptions", true)]
+	[InlineData("setItems", true)]
+	[InlineData("measureRenderedRows", true)]
+	public async Task DisposeAsync_WhileARenderAwaitsTheJSInstance_ThatRenderGoesNoFurther(string callInFlight, bool callFails)
 	{
 		// Arrange
 		using var context = CreateContext();
@@ -221,7 +224,15 @@ public class AdaptiveVirtualizeTests
 
 		// Act
 		var disposal = component.InvokeAsync(async () => await component.Instance.DisposeAsync());
-		heldCall.SetVoidResult();
+		// In a reloaded BlazorWebView the call fails: the page it reaches no longer holds the instance.
+		if (callFails)
+		{
+			heldCall.SetException(new JSException("JS object instance with ID 20 does not exist (has it been disposed?)"));
+		}
+		else
+		{
+			heldCall.SetVoidResult();
+		}
 		// The render's continuation was queued on the renderer's dispatcher by the line above, so a
 		// no-op behind it only completes once that continuation has run.
 		await component.InvokeAsync(() => { });
@@ -240,6 +251,81 @@ public class AdaptiveVirtualizeTests
 
 		layoutMeasuredCount.ShouldBe(0);
 		context.Renderer.UnhandledException.IsCompleted.ShouldBeFalse();
+	}
+
+	[Theory]
+	[InlineData(typeof(JSException), LogLevel.Debug)]
+	[InlineData(typeof(JSDisconnectedException), LogLevel.Debug)]
+	[InlineData(typeof(ObjectDisposedException), LogLevel.Debug)]
+	[InlineData(typeof(TaskCanceledException), LogLevel.Debug)]
+	[InlineData(typeof(InvalidOperationException), LogLevel.Warning)]
+	public async Task ScrollToTop_StillInFlightWhenTheComponentIsDisposed_CompletesWithoutThrowing(Type failure, LogLevel expectedLogLevel)
+	{
+		// Arrange
+		using var context = CreateContext();
+		var log = new CapturingLogger();
+		context.Services.AddSingleton<ILogger<AdaptiveVirtualize<string>>>(log);
+		var instance = new FakeJS().Throwing("scrollToIndex", (Exception) Activator.CreateInstance(failure, "scroll failed")!);
+		instance.Hold("scrollToIndex");
+		var module = new FakeJS().Returning("create", instance);
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		// Fired off and not awaited, the way an app scrolls a list back to the top after a filter change.
+		Task scroll = null!;
+		await component.InvokeAsync(() => { scroll = component.Instance.ScrollToTop(); });
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		instance.Answer("scrollToIndex");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		// Thrown, it would reach a caller that did not await it only as an unobserved task exception.
+		// Checked by status: Should.NotThrowAsync lets a canceled task through as "did not throw".
+		scroll.Status.ShouldBe(TaskStatus.RanToCompletion);
+		log.Entries.ShouldContain(entry => entry.Level == expectedLogLevel && entry.Exception != null && entry.Exception.GetType() == failure);
+	}
+
+	[Fact]
+	public async Task GetSnapshot_StillInFlightWhenTheComponentIsDisposed_ReturnsNothing()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS().Throwing("getSnapshot", new JSException("JS object instance with ID 20 does not exist (has it been disposed?)"));
+		instance.Hold("getSnapshot");
+		var module = new FakeJS().Returning("create", instance);
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		Task<VirtualizerSnapshot?> query = null!;
+		await component.InvokeAsync(() => { query = component.Instance.GetSnapshot(); });
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		instance.Answer("getSnapshot");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		// The same answer as a query made after disposal.
+		query.Status.ShouldBe(TaskStatus.RanToCompletion);
+		(await query).ShouldBeNull();
+	}
+
+	[Fact]
+	public async Task ScrollToTop_JSFailsWhileTheComponentIsAlive_Throws()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS().Throwing("scrollToIndex", new JSException("scroll failed"));
+		var module = new FakeJS().Returning("create", instance);
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		var scroll = () => component.InvokeAsync(() => component.Instance.ScrollToTop());
+
+		// Assert
+		// Only disposal makes a failure expected; before it, it may be a genuine bug.
+		await Should.ThrowAsync<JSException>(scroll);
 	}
 
 	[Fact]
