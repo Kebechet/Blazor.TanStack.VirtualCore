@@ -245,6 +245,56 @@ public class AdaptiveVirtualizeTests
 		Should.Throw<ObjectDisposedException>(() => selfRef.Value);
 	}
 
+	[Theory]
+	[InlineData(typeof(TaskCanceledException))]
+	[InlineData(typeof(JSException))]
+	public async Task DisposeAsync_WhileTheJSInstanceIsBeingCreated_StillReleasesEverythingIfCreationFails(Type failure)
+	{
+		// Arrange
+		using var context = CreateContext();
+		var module = new FakeJS().Throwing("create", (Exception) Activator.CreateInstance(failure, "create failed")!);
+		module.Hold("create");
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+		var selfRef = (DotNetObjectReference<AdaptiveVirtualize<string>>) module.Calls.Single().Args![1]!;
+
+		// Act
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+		module.Answer("create");
+		await component.InvokeAsync(() => { });
+
+		// Assert
+		// The JS runtime tracks the reference from the moment create was sent, so leaving it
+		// unreleased pins the disposed component for as long as the runtime lives.
+		Should.Throw<ObjectDisposedException>(() => selfRef.Value);
+		module.IsReleased.ShouldBeTrue();
+		// With the component gone the failure has nobody left to tell; letting it escape would only
+		// surface as an unhandled render exception.
+		context.Renderer.UnhandledException.IsCompleted.ShouldBeFalse();
+	}
+
+	[Fact]
+	public async Task DisposeAsync_InteropCallsTimeOut_StillRunsTheRestOfTheCleanup()
+	{
+		// Arrange
+		// What Blazor Server does to each call when the browser has stopped answering.
+		var instance = new FakeJS().Throwing("dispose", new TaskCanceledException());
+		var module = new FakeJS()
+			.Returning("create", instance)
+			.Throwing(nameof(IAsyncDisposable.DisposeAsync), new TaskCanceledException());
+		using var context = CreateContext();
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+		var selfRef = (DotNetObjectReference<AdaptiveVirtualize<string>>) module.Calls.Single().Args![1]!;
+
+		// Act
+		// Awaited directly: Should.NotThrowAsync lets a canceled task through as "did not throw".
+		await component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+
+		// Assert
+		Should.Throw<ObjectDisposedException>(() => selfRef.Value);
+	}
+
 	/// <summary>
 	/// Stands in for the runtime, the module and the instance alike, whose call surfaces are
 	/// identical. Hand-rolled because bUnit's module stand-ins always answer at once, and these tests
@@ -253,6 +303,7 @@ public class AdaptiveVirtualizeTests
 	private sealed class FakeJS : IJSRuntime, IJSObjectReference
 	{
 		private readonly Dictionary<string, object?> _results = [];
+		private readonly Dictionary<string, Exception> _failures = [];
 		private readonly Dictionary<string, TaskCompletionSource> _heldCalls = [];
 
 		public List<(string Identifier, object?[]? Args)> Calls { get; } = [];
@@ -262,6 +313,13 @@ public class AdaptiveVirtualizeTests
 		public FakeJS Returning(string identifier, object? result)
 		{
 			_results[identifier] = result;
+			return this;
+		}
+
+		/// <summary>Fails calls to <paramref name="identifier"/>; pass <c>DisposeAsync</c> to fail the release.</summary>
+		public FakeJS Throwing(string identifier, Exception exception)
+		{
+			_failures[identifier] = exception;
 			return this;
 		}
 
@@ -291,11 +349,21 @@ public class AdaptiveVirtualizeTests
 				await heldCall.Task.ConfigureAwait(false);
 			}
 
+			if (_failures.TryGetValue(identifier, out var failure))
+			{
+				throw failure;
+			}
+
 			return (TValue) _results.GetValueOrDefault(identifier)!;
 		}
 
 		public ValueTask DisposeAsync()
 		{
+			if (_failures.TryGetValue(nameof(DisposeAsync), out var failure))
+			{
+				return ValueTask.FromException(failure);
+			}
+
 			IsReleased = true;
 			return ValueTask.CompletedTask;
 		}
