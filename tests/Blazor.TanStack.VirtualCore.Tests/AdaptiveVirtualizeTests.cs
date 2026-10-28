@@ -2,6 +2,7 @@ using System.Globalization;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using Shouldly;
 using Xunit;
@@ -173,6 +174,8 @@ public class AdaptiveVirtualizeTests
 	{
 		// Arrange
 		using var context = CreateContext();
+		var log = new CapturingLogger();
+		context.Services.AddSingleton<ILogger<AdaptiveVirtualize<string>>>(log);
 		var module = context.JSInterop.SetupModule(_modulePath);
 		var instance = module.SetupModule(invocation => invocation.Identifier == "create");
 		instance.SetupVoid("dispose").SetException(new JSException("JS object instance with ID 20 does not exist (has it been disposed?)"));
@@ -184,6 +187,9 @@ public class AdaptiveVirtualizeTests
 		// Assert
 		await Should.NotThrowAsync(dispose);
 		instance.VerifyInvoke("dispose");
+		// Swallowed, but not silently: an expected teardown condition, so Debug rather than an error
+		// an app's error tracker would report.
+		log.Entries.ShouldContain(entry => entry.Level == LogLevel.Debug && entry.Exception is JSException);
 	}
 
 	[Theory]
@@ -287,12 +293,15 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Theory]
-	[InlineData(typeof(TaskCanceledException))]
-	[InlineData(typeof(JSException))]
-	public async Task DisposeAsync_WhileTheJSInstanceIsBeingCreated_StillReleasesEverythingIfCreationFails(Type failure)
+	[InlineData(typeof(TaskCanceledException), LogLevel.Debug)]
+	[InlineData(typeof(JSException), LogLevel.Debug)]
+	[InlineData(typeof(InvalidOperationException), LogLevel.Warning)]
+	public async Task DisposeAsync_WhileTheJSInstanceIsBeingCreated_StillReleasesEverythingIfCreationFails(Type failure, LogLevel expectedLogLevel)
 	{
 		// Arrange
 		using var context = CreateContext();
+		var log = new CapturingLogger();
+		context.Services.AddSingleton<ILogger<AdaptiveVirtualize<string>>>(log);
 		var module = new FakeJS().Throwing("create", (Exception) Activator.CreateInstance(failure, "create failed")!);
 		module.Hold("create");
 		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
@@ -312,6 +321,9 @@ public class AdaptiveVirtualizeTests
 		// With the component gone the failure has nobody left to tell; letting it escape would only
 		// surface as an unhandled render exception.
 		context.Renderer.UnhandledException.IsCompleted.ShouldBeFalse();
+		// But it is logged: Debug when it is one of the ways the JS side is known to go away,
+		// Warning for anything else, which is the case that could be hiding a genuine bug.
+		log.Entries.ShouldContain(entry => entry.Level == expectedLogLevel && entry.Exception != null && entry.Exception.GetType() == failure);
 	}
 
 	[Fact]
@@ -433,6 +445,27 @@ public class AdaptiveVirtualizeTests
 
 			IsReleased = true;
 			return ValueTask.CompletedTask;
+		}
+	}
+
+	/// <summary>Records what the component logs, so a swallowed exception can be checked for.</summary>
+	private sealed class CapturingLogger : ILogger<AdaptiveVirtualize<string>>
+	{
+		public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+		{
+			return null;
+		}
+
+		public bool IsEnabled(LogLevel logLevel)
+		{
+			return true;
+		}
+
+		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+		{
+			Entries.Add((logLevel, exception));
 		}
 	}
 }

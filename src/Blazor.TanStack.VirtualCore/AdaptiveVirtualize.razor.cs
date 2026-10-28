@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 
 namespace Kebechet.Blazor.TanStack.VirtualCore;
@@ -250,10 +251,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                         "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
                 }
             }
-            catch (Exception) when (_isDisposed)
+            catch (Exception exception) when (_isDisposed)
             {
-                // The component is gone, so the failure has nobody left to tell - escaping would
-                // only surface as an unhandled render exception, and skip the release below.
+                // The component is gone, so escaping would only surface as an unhandled render
+                // exception, and skip the release below.
+                LogTeardownFailure(exception, "initializing the JS side");
             }
             finally
             {
@@ -563,27 +565,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 await instance.InvokeVoidAsync("dispose");
                 await instance.DisposeAsync();
             }
-            catch (JSDisconnectedException)
+            catch (Exception exception) when (IsJsSideGone(exception))
             {
-                // Circuit or WebView already torn down - the JS instance went with it.
-            }
-            catch (ObjectDisposedException)
-            {
-                // JS runtime already disposed during app shutdown.
-            }
-            catch (JSException)
-            {
-                // The page no longer holds this object ("JS object instance with ID n does not
-                // exist"). When a BlazorWebView's page reloads, it is the reloaded page's attach
-                // request that disposes the previous page's renderer, so the dispose call reaches a
-                // page that never created the object. Blazor reports that as a JSException, not as
-                // a disconnect.
-            }
-            catch (TaskCanceledException)
-            {
-                // Blazor Server cancels a call that outlives CircuitOptions.JSInteropDefaultCallTimeout,
-                // i.e. the browser stopped answering. Letting it escape would skip the rest of the
-                // cleanup below.
+                LogTeardownFailure(exception, "disposing the JS instance");
             }
         }
 
@@ -593,14 +577,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             {
                 await module.DisposeAsync();
             }
-            catch (JSDisconnectedException)
+            catch (Exception exception) when (IsJsSideGone(exception))
             {
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-            catch (TaskCanceledException)
-            {
+                LogTeardownFailure(exception, "releasing the JS module");
             }
         }
 
@@ -609,5 +588,45 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             _selfRef?.Dispose();
             _selfRef = null;
         }
+    }
+
+    /// <summary>
+    /// Whether an interop call failed during teardown only because the JS side is already gone.
+    /// Nothing is left there to clean up, and letting the exception escape would skip the rest of
+    /// the cleanup.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><see cref="JSDisconnectedException"/>: the circuit or WebView is already torn down, and
+    /// the JS objects went with it.</item>
+    /// <item><see cref="ObjectDisposedException"/>: the JS runtime was already disposed during app
+    /// shutdown.</item>
+    /// <item><see cref="JSException"/>: the page no longer holds the object ("JS object instance with
+    /// ID n does not exist"). When a BlazorWebView's page reloads, it is the reloaded page's attach
+    /// request that disposes the previous page's renderer, so the call reaches a page that never
+    /// created the object. Blazor reports that as a JSException, not as a disconnect.</item>
+    /// <item><see cref="TaskCanceledException"/>: Blazor Server cancels a call that outlives
+    /// <c>CircuitOptions.JSInteropDefaultCallTimeout</c>, i.e. the browser stopped answering.</item>
+    /// </list>
+    /// </remarks>
+    private static bool IsJsSideGone(Exception exception)
+    {
+        return exception is JSDisconnectedException or ObjectDisposedException or JSException or TaskCanceledException;
+    }
+
+    /// <summary>Logs an interop failure that teardown deliberately does not let escape.</summary>
+    /// <remarks>
+    /// Debug for the known ways the JS side goes away: they happen routinely around page reloads and
+    /// disconnects, and logged as errors every one would reach an app's error tracker - the noise
+    /// that made the reported JSException visible in the first place. Anything else is a Warning,
+    /// because that may be a genuine bug.
+    /// </remarks>
+    private void LogTeardownFailure(Exception exception, string step)
+    {
+        _logger.Log(
+            IsJsSideGone(exception) ? LogLevel.Debug : LogLevel.Warning,
+            exception,
+            "AdaptiveVirtualize was disposed; ignoring a failure while {Step}",
+            step);
     }
 }
