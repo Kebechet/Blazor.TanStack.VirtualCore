@@ -166,6 +166,46 @@ public sealed class InteropModuleTests
         _fixture.AssertNoJsErrors();
     }
 
+    [Fact]
+    public async Task CancelScroll_AfterAScrollCommand_StopsItCorrectingTowardsTheTarget()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var scrollTops = await _fixture.Page.EvaluateAsync<double[]>(
+            "async () => {" + _mountScript + @"
+                const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+                const scrollAfterGrowingARowAbove = async cancel => {
+                    const list = mount(100, {}, (totalSize, root) =>
+                        setTimeout(() => { root.style.height = `${totalSize}px`; }, 30));
+                    await delay(100);
+
+                    // Item 50 starts at 2500. Item 10 growing by 150px moves it to 2650 - the same
+                    // shift a row measured mid-scroll causes - and an uncancelled command chases it.
+                    list.instance.scrollToIndex(50, 'start', 'auto');
+                    if (cancel) {
+                        list.instance.cancelScroll();
+                    }
+                    list.instance.resizeItem(10, 200);
+                    await delay(300);
+
+                    const scrollTop = list.viewport.scrollTop;
+                    list.instance.dispose();
+                    list.viewport.remove();
+                    return scrollTop;
+                };
+                return [await scrollAfterGrowingARowAbove(false), await scrollAfterGrowingARowAbove(true)];
+            }");
+
+        // Assert
+        // The first run proves the command would have moved the viewport; the second that the
+        // cancel left it where it was - where a user's own scroll would have taken over.
+        Assert.Equal(2650, scrollTops[0]);
+        Assert.Equal(2500, scrollTops[1]);
+        _fixture.AssertNoJsErrors();
+    }
+
     private sealed class RangeSample
     {
         [JsonPropertyName("startIndex")]

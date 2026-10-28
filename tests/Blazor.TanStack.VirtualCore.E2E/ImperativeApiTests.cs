@@ -5,6 +5,8 @@ namespace Blazor.TanStack.VirtualCore.E2E;
 /// <summary>
 /// One test per public method that reaches virtual-core. Each asserts against what the browser did,
 /// read back through <c>GetSnapshot</c> or the live DOM, rather than that the call returned.
+/// <c>CancelScroll</c> is the exception, covered in <see cref="InteropModuleTests"/>: its effect only
+/// shows when it lands in the same task as the scroll it cancels, which a button click cannot time.
 /// </summary>
 [Collection(DemoCollectionDefinition.Name)]
 public sealed class ImperativeApiTests

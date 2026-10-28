@@ -404,6 +404,10 @@ class AdaptiveVirtualizeInstance {
 		this.virtualizer.scrollBy(delta, { behavior });
 	}
 
+	cancelScroll() {
+		this.virtualizer.cancelScroll();
+	}
+
 	resizeItem(index, size) {
 		this.virtualizer.resizeItem(index, size);
 	}
