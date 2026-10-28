@@ -478,6 +478,14 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             {
                 // JS runtime already disposed during app shutdown.
             }
+            catch (JSException)
+            {
+                // The page no longer holds this object ("JS object instance with ID n does not
+                // exist"). When a BlazorWebView's page reloads, it is the reloaded page's attach
+                // request that disposes the previous page's renderer, so the dispose call reaches a
+                // page that never created the object. Blazor reports that as a JSException, not as
+                // a disconnect.
+            }
 
             _jsInstance = null;
         }
