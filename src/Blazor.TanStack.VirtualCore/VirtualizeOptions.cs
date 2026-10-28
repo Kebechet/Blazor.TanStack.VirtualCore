@@ -18,6 +18,11 @@ namespace Kebechet.Blazor.TanStack.VirtualCore;
 public sealed class VirtualizeOptions
 {
     /// <summary>Extra items rendered beyond each edge of the viewport to mask scroll latency.</summary>
+    /// <remarks>
+    /// With <see cref="Lanes"/> above 1 this counts whole rows of <c>Lanes</c> items, so every lane is
+    /// buffered alike. <see cref="OverscanLeading"/> and <see cref="OverscanTrailing"/> count the same
+    /// way.
+    /// </remarks>
     [JsonPropertyName("overscan")]
     public int? Overscan { get; set; }
 
@@ -45,7 +50,7 @@ public sealed class VirtualizeOptions
     /// <remarks>
     /// Unlike react-window's equivalent, this is held at all times rather than lapsing when the
     /// scroll stops: virtual-core memoizes its rendered range on
-    /// <c>[rangeExtractor, overscan, count, startIndex, endIndex]</c>, which excludes
+    /// <c>[rangeExtractor, overscan, count, startIndex, endIndex, lanes]</c>, which excludes
     /// <c>isScrolling</c>, so a value that lapsed would simply never be recomputed and the bias would
     /// outlive the scroll instead.
     /// <para>

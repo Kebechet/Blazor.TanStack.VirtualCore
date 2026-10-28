@@ -180,8 +180,8 @@ public sealed class OptionCoverageTests
         // Assert
         // Pins the reason the trailing count is a held floor rather than a while-scrolling value:
         // virtual-core memoizes getVirtualIndexes on [rangeExtractor, overscan, count, startIndex,
-        // endIndex], so nothing re-invokes the extractor once the range stops moving. A value that
-        // lapsed on isScrolling would never be recomputed, and the bias would outlive the scroll.
+        // endIndex, lanes], so nothing re-invokes the extractor once the range stops moving. A value
+        // that lapsed on isScrolling would never be recomputed, and the bias would outlive the scroll.
         // Holding it keeps a reversal no worse off than a symmetric window of the same size.
         Assert.False(buffer.IsScrolling);
         Assert.Equal(2, buffer.Above);
