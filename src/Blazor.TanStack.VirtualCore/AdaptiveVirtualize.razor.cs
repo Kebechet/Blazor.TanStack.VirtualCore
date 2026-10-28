@@ -86,6 +86,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
     private bool _isDisposed;
 
+    /// <summary>True while the first render is still importing the module and creating the instance.</summary>
+    private bool _isInitializing;
+
     /// <summary>
     /// Reusable interop buffers. Rebuilding these is O(items), so for a large set it is worth not
     /// reallocating them on every item-set change.
@@ -225,10 +228,31 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         if (firstRender)
         {
             _selfRef = DotNetObjectReference.Create(this);
-            _jsModule = await _jsRuntime.InvokeAsync<IJSObjectReference>("import", _modulePath);
-            BuildDescriptors();
-            _jsInstance = await _jsModule.InvokeAsync<IJSObjectReference>(
-                "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
+            _isInitializing = true;
+            try
+            {
+                _jsModule = await _jsRuntime.InvokeAsync<IJSObjectReference>("import", _modulePath);
+                if (!_isDisposed)
+                {
+                    BuildDescriptors();
+                    _jsInstance = await _jsModule.InvokeAsync<IJSObjectReference>(
+                        "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
+                }
+            }
+            finally
+            {
+                _isInitializing = false;
+            }
+
+            // Disposal overtook one of the awaits above, so it ran before the module or the
+            // instance existed and released nothing of theirs. Whatever has arrived since is left to
+            // this render.
+            if (_isDisposed)
+            {
+                await ReleaseJsAsync();
+                return;
+            }
+
             _lastItemsRef = Items;
             _lastOptionsRef = Options;
 
@@ -483,13 +507,33 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _isDisposed = true;
+        await ReleaseJsAsync();
+    }
 
-        if (_jsInstance is not null)
+    /// <summary>
+    /// Releases whatever JS state exists at this moment. Runs from <see cref="DisposeAsync"/>, and
+    /// again from the first render when disposal overtook it, so it must be safe to run twice.
+    /// </summary>
+    private async Task ReleaseJsAsync()
+    {
+        // While the first render is still creating the instance, _selfRef is not this pass's to
+        // release: the instance on its way was handed it and can call it the moment it exists. The
+        // first render releases it once that instance has arrived and been disposed.
+        var canReleaseSelfRef = !_isInitializing;
+
+        // Taken out of the fields before the first await, so nothing else - the imperative API, or
+        // the first render's pass - can reach an object while it is being released.
+        var instance = _jsInstance;
+        _jsInstance = null;
+        var module = _jsModule;
+        _jsModule = null;
+
+        if (instance is not null)
         {
             try
             {
-                await _jsInstance.InvokeVoidAsync("dispose");
-                await _jsInstance.DisposeAsync();
+                await instance.InvokeVoidAsync("dispose");
+                await instance.DisposeAsync();
             }
             catch (JSDisconnectedException)
             {
@@ -507,15 +551,13 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 // page that never created the object. Blazor reports that as a JSException, not as
                 // a disconnect.
             }
-
-            _jsInstance = null;
         }
 
-        if (_jsModule is not null)
+        if (module is not null)
         {
             try
             {
-                await _jsModule.DisposeAsync();
+                await module.DisposeAsync();
             }
             catch (JSDisconnectedException)
             {
@@ -523,11 +565,12 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             catch (ObjectDisposedException)
             {
             }
-
-            _jsModule = null;
         }
 
-        _selfRef?.Dispose();
-        _selfRef = null;
+        if (canReleaseSelfRef)
+        {
+            _selfRef?.Dispose();
+            _selfRef = null;
+        }
     }
 }
