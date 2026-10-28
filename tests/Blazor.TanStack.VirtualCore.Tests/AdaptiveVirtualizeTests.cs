@@ -1,6 +1,7 @@
 using System.Globalization;
 using Bunit;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using Shouldly;
 using Xunit;
 using TestContext = Bunit.TestContext;
@@ -121,5 +122,23 @@ public class AdaptiveVirtualizeTests
 		// Height stays 0 until the virtualizer reports a total, so the page must not reserve space
 		// it cannot yet justify.
 		component.Markup.ShouldContain("height:0px");
+	}
+
+	[Fact]
+	public async Task DisposeAsync_JSObjectAlreadyGoneFromThePage_DoesNotThrow()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var module = context.JSInterop.SetupModule("./_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js");
+		var instance = module.SetupModule(invocation => invocation.Identifier == "create");
+		instance.SetupVoid("dispose").SetException(new JSException("JS object instance with ID 20 does not exist (has it been disposed?)"));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		var dispose = () => component.InvokeAsync(async () => await component.Instance.DisposeAsync());
+
+		// Assert
+		await Should.NotThrowAsync(dispose);
+		instance.VerifyInvoke("dispose");
 	}
 }
