@@ -174,25 +174,41 @@ public sealed class DemoFixture : IAsyncLifetime
     }
 
     /// <summary>Scrolls the story's viewport and waits for the rendered window to actually move.</summary>
+    /// <remarks>
+    /// Polled on a timer rather than Playwright's default of every animation frame, which a busy
+    /// machine can starve. On a timeout the scroll position and rendered window go into the message:
+    /// "the window never moved" alone does not say whether the scroll was lost or never re-rendered.
+    /// </remarks>
     public async Task ScrollViewportAsync(string testId, int deltaY)
     {
+        var selector = $"[data-testid=\"{testId}-viewport\"]";
         var before = await ReadRenderedRowsAsync();
         var firstBefore = before.Count > 0 ? before[0].Index : -1;
+        var scrollTopBefore = await Page.EvalOnSelectorAsync<double>(selector, "el => el.scrollTop");
 
-        await Page.EvalOnSelectorAsync(
-            $"[data-testid=\"{testId}-viewport\"]",
-            "(el, delta) => el.scrollTop += delta",
-            deltaY);
+        await Page.EvalOnSelectorAsync(selector, "(el, delta) => el.scrollTop += delta", deltaY);
 
-        await Page.WaitForFunctionAsync(
-            @"first => {
-                const els = document.querySelectorAll('[data-index]');
-                if (els.length === 0) return false;
-                const indexes = Array.from(els).map(el => parseInt(el.getAttribute('data-index'), 10));
-                return Math.min(...indexes) !== first;
-            }",
-            firstBefore,
-            new PageWaitForFunctionOptions { Timeout = 15_000 });
+        try
+        {
+            await Page.WaitForFunctionAsync(
+                @"first => {
+                    const els = document.querySelectorAll('[data-index]');
+                    if (els.length === 0) return false;
+                    const indexes = Array.from(els).map(el => parseInt(el.getAttribute('data-index'), 10));
+                    return Math.min(...indexes) !== first;
+                }",
+                firstBefore,
+                new PageWaitForFunctionOptions { Timeout = 15_000, PollingInterval = 50 });
+        }
+        catch (TimeoutException)
+        {
+            var scrollTopAfter = await Page.EvalOnSelectorAsync<double>(selector, "el => el.scrollTop");
+            var after = await ReadRenderedRowsAsync();
+            var window = after.Count > 0 ? $"{after[0].Index}-{after[^1].Index}" : "empty";
+            throw new TimeoutException(
+                $"Scrolling {testId} by {deltaY}px never moved the rendered window off row {firstBefore}. " +
+                $"scrollTop went {scrollTopBefore} -> {scrollTopAfter}; rendered rows now {window}.");
+        }
     }
 
     /// <summary>Fails the current test if the page logged an unhandled JavaScript or Blazor render error.</summary>
