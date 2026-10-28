@@ -156,6 +156,12 @@ public sealed class VirtualizeOptions
     public bool? UseScrollEndEvent { get; set; }
 
     /// <summary>Right-to-left layout, which flips the direction offsets are measured in.</summary>
+    /// <remarks>
+    /// Takes effect with <see cref="IsHorizontal"/>. It flips how the scroll offset is read and
+    /// written and which edge items are placed from, but not the scroll container's own direction:
+    /// that container has to run right to left itself (<c>direction: rtl</c>), or the offsets and
+    /// the layout disagree.
+    /// </remarks>
     [JsonPropertyName("isRtl")]
     public bool? IsRtl { get; set; }
 

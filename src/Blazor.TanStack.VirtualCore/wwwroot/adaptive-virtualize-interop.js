@@ -164,6 +164,16 @@ class AdaptiveVirtualizeInstance {
 			resolved.scrollToFn = elementScroll;
 		}
 
+		// virtual-core negates scrollLeft when it reads the offset under isRtl, but writes the offset
+		// back as is - and in a right-to-left container scrollLeft runs from 0 down to negative
+		// values, so a positive write clamps to the start and every scroll command goes nowhere.
+		// Negating it on the way out matches the read.
+		if (passThrough.isRtl && passThrough.horizontal) {
+			const write = resolved.scrollToFn;
+			resolved.scrollToFn = (offset, { adjustments = 0, behavior }, instance) =>
+				write(-(offset + adjustments), { behavior }, instance);
+		}
+
 		// Enums cross interop as their C# names; virtual-core wants its own lowercase literals.
 		if (laneAssignmentMode) {
 			resolved.laneAssignmentMode = laneAssignmentMode.toLowerCase();

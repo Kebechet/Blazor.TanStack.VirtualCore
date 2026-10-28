@@ -102,6 +102,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     private VirtualizeOptions? _preparedFromOptions;
 
     private bool _isHorizontal => Options?.IsHorizontal == true;
+    private bool _isRtl => Options?.IsRtl == true;
     private int _laneCount => Options?.Lanes is > 1 ? Options.Lanes.Value : 1;
 
     private string _containerStyle
@@ -136,8 +137,13 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
         if (_isHorizontal)
         {
-            return $"position:absolute;left:0;top:{crossStart}%;height:{crossSize}%;" +
-                $"transform:translateX({ToCss(virtualItem.Start)}px);";
+            // virtual-core measures offsets from where reading starts, which under IsRtl is the
+            // right edge - placing them from the left would put item 0 at the far end of the rail.
+            return _isRtl
+                ? $"position:absolute;right:0;top:{crossStart}%;height:{crossSize}%;" +
+                    $"transform:translateX(-{ToCss(virtualItem.Start)}px);"
+                : $"position:absolute;left:0;top:{crossStart}%;height:{crossSize}%;" +
+                    $"transform:translateX({ToCss(virtualItem.Start)}px);";
         }
 
         return $"position:absolute;top:0;left:{crossStart}%;width:{crossSize}%;" +
