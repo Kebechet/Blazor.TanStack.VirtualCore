@@ -239,6 +239,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                         "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
                 }
             }
+            catch (Exception) when (_isDisposed)
+            {
+                // The component is gone, so the failure has nobody left to tell - escaping would
+                // only surface as an unhandled render exception, and skip the release below.
+            }
             finally
             {
                 _isInitializing = false;
@@ -551,6 +556,12 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 // page that never created the object. Blazor reports that as a JSException, not as
                 // a disconnect.
             }
+            catch (TaskCanceledException)
+            {
+                // Blazor Server cancels a call that outlives CircuitOptions.JSInteropDefaultCallTimeout,
+                // i.e. the browser stopped answering. Letting it escape would skip the rest of the
+                // cleanup below.
+            }
         }
 
         if (module is not null)
@@ -563,6 +574,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             {
             }
             catch (ObjectDisposedException)
+            {
+            }
+            catch (TaskCanceledException)
             {
             }
         }
