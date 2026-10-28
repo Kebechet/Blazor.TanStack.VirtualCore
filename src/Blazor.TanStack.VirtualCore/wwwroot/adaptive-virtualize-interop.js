@@ -162,16 +162,20 @@ class AdaptiveVirtualizeInstance {
 	 * Deliberately NOT gated on isScrolling, the way react-window's _getRangeToRender is. React
 	 * re-renders when its isScrolling state flips, so its range genuinely recomputes at rest;
 	 * virtual-core memoizes getVirtualIndexes on [rangeExtractor, overscan, count, startIndex,
-	 * endIndex] and isScrolling is not among them, so an extractor that read it would keep returning
-	 * the scrolling-time answer until the visible range moved again. The bias would then silently
-	 * outlive the scroll - the opposite of what gating it was meant to achieve.
+	 * endIndex, lanes] and isScrolling is not among them, so an extractor that read it would keep
+	 * returning the scrolling-time answer until the visible range moved again. The bias would then
+	 * silently outlive the scroll - the opposite of what gating it was meant to achieve.
 	 *
 	 * The trailing count is what makes that safe: it is a floor held at all times, not a value that
 	 * lapses. Leave it at overscan and reversing is never worse than a symmetric window; the leading
 	 * side is then pure profit.
 	 */
 	extractDirectionalRange(range, leading, trailing) {
-		const resolve = (value) => Number.isFinite(value) ? value : range.overscan;
+		// Counted in rows of `lanes` items, as defaultRangeExtractor has done since virtual-core
+		// 3.19.0. Counting items would leave the edge rows partly rendered, buffering some lanes
+		// less than others.
+		const lanes = Math.max(range.lanes ?? 1, 1);
+		const resolve = (value) => (Number.isFinite(value) ? value : range.overscan) * lanes;
 		const leadingCount = resolve(leading);
 		const trailingCount = resolve(trailing);
 

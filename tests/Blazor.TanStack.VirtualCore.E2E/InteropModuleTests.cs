@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Xunit;
 
 namespace Blazor.TanStack.VirtualCore.E2E;
@@ -10,6 +11,28 @@ namespace Blazor.TanStack.VirtualCore.E2E;
 public sealed class InteropModuleTests
 {
     private const string _story = "components-adaptivevirtualize--imperative-api";
+
+    /// <summary>
+    /// Prepended to each test's script. <c>mount</c> creates an instance over 50px items in a
+    /// 300x200 viewport, with a .NET stand-in that counts the notifications it receives.
+    /// </summary>
+    private const string _mountScript = @"
+        const moduleUrl = new URL('_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js', document.baseURI);
+        const { create } = await import(moduleUrl.href);
+        const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+        const mount = (itemCount, options) => {
+            const viewport = document.createElement('div');
+            viewport.style.cssText = 'overflow:auto;width:300px;height:200px;';
+            const root = document.createElement('div');
+            viewport.appendChild(root);
+            document.body.appendChild(viewport);
+
+            const list = { viewport, root, notifications: 0 };
+            const dotNetRef = { invokeMethodAsync: () => { list.notifications++; return Promise.resolve(); } };
+            const keys = Array.from({ length: itemCount }, (_, index) => `row-${index}`);
+            list.instance = create(root, dotNetRef, keys, keys.map(() => 50), 50, options);
+            return list;
+        };";
 
     private readonly DemoFixture _fixture;
 
@@ -26,21 +49,8 @@ public sealed class InteropModuleTests
 
         // Act
         var notificationsAfterDispose = await _fixture.Page.EvaluateAsync<int>(
-            @"async () => {
-                const moduleUrl = new URL('_content/Kebechet.Blazor.TanStack.VirtualCore/adaptive-virtualize-interop.js', document.baseURI);
-                const { create } = await import(moduleUrl.href);
-                const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
-
-                const viewport = document.createElement('div');
-                viewport.style.cssText = 'overflow:auto;width:300px;height:200px;';
-                const root = document.createElement('div');
-                viewport.appendChild(root);
-                document.body.appendChild(viewport);
-
-                let notifications = 0;
-                const dotNetRef = { invokeMethodAsync: () => { notifications++; return Promise.resolve(); } };
-                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
-                const instance = create(root, dotNetRef, keys, keys.map(() => 50), 50, { useAnimationFrameWithResizeObserver: true });
+            "async () => {" + _mountScript + @"
+                const list = mount(100, { useAnimationFrameWithResizeObserver: true });
                 await nextFrame();
                 await nextFrame();
 
@@ -52,17 +62,17 @@ public sealed class InteropModuleTests
                 await new Promise(resolve => {
                     new ResizeObserver((_, observer) => {
                         observer.disconnect();
-                        instance.dispose();
-                        notificationsAtDispose = notifications;
+                        list.instance.dispose();
+                        notificationsAtDispose = list.notifications;
                         resolve();
-                    }).observe(viewport);
-                    viewport.style.height = '400px';
+                    }).observe(list.viewport);
+                    list.viewport.style.height = '400px';
                 });
                 await nextFrame();
                 await nextFrame();
 
-                viewport.remove();
-                return notifications - notificationsAtDispose;
+                list.viewport.remove();
+                return list.notifications - notificationsAtDispose;
             }");
 
         // Assert
@@ -70,5 +80,58 @@ public sealed class InteropModuleTests
         // and Blazor rejects it in the browser console.
         Assert.Equal(0, notificationsAfterDispose);
         _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task DirectionalOverscan_WithLanes_BuffersWholeRows()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sample = await _fixture.Page.EvaluateAsync<RangeSample>(
+            "async () => {" + _mountScript + @"
+                // 300 items in 3 lanes: 100 rows of 50px. The module never sizes its own root -
+                // Blazor does that from the reported total - so it is sized here, or the viewport
+                // would have nothing to scroll.
+                const list = mount(300, { lanes: 3, overscanLeading: 4, overscanTrailing: 1 });
+                list.root.style.height = `${list.instance.getTotalSize()}px`;
+                list.viewport.scrollTop = 2500;
+                await nextFrame();
+                await nextFrame();
+
+                const snapshot = list.instance.getSnapshot();
+                const indexes = list.instance.getVirtualIndexes();
+                list.instance.dispose();
+                list.viewport.remove();
+                return {
+                    startIndex: snapshot.startIndex,
+                    endIndex: snapshot.endIndex,
+                    firstRendered: indexes[0],
+                    lastRendered: indexes[indexes.length - 1],
+                };
+            }");
+
+        // Assert
+        // One row of three behind, four rows ahead. Counting single items instead leaves the edge
+        // rows partly rendered, so some lanes are buffered less than others.
+        Assert.Equal(sample.StartIndex - 3, sample.FirstRendered);
+        Assert.Equal(sample.EndIndex + 12, sample.LastRendered);
+        _fixture.AssertNoJsErrors();
+    }
+
+    private sealed class RangeSample
+    {
+        [JsonPropertyName("startIndex")]
+        public int StartIndex { get; set; }
+
+        [JsonPropertyName("endIndex")]
+        public int EndIndex { get; set; }
+
+        [JsonPropertyName("firstRendered")]
+        public int FirstRendered { get; set; }
+
+        [JsonPropertyName("lastRendered")]
+        public int LastRendered { get; set; }
     }
 }
