@@ -128,6 +128,22 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Fact]
+	public async Task CancelScroll_ReachesTheJSInstance()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var module = context.JSInterop.SetupModule(_modulePath);
+		var instance = module.SetupModule(invocation => invocation.Identifier == "create");
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		await component.InvokeAsync(() => component.Instance.CancelScroll());
+
+		// Assert
+		instance.VerifyInvoke("cancelScroll");
+	}
+
+	[Fact]
 	public async Task DisposeAsync_JSObjectAlreadyGoneFromThePage_DoesNotThrow()
 	{
 		// Arrange

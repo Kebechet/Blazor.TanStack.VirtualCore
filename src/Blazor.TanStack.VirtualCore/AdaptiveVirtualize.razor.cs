@@ -387,6 +387,21 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     }
 
     /// <summary>
+    /// Stops an in-flight <see cref="ScrollToIndex"/>, <see cref="ScrollToOffset"/>,
+    /// <see cref="ScrollToEnd"/> or <see cref="ScrollBy"/> from correcting toward its target.
+    /// </summary>
+    /// <remarks>
+    /// After one of those calls virtual-core keeps re-aiming at the target for a while as items are
+    /// measured. Call this when the user starts a scroll of their own - from a wheel, touchstart or
+    /// keydown handler - so the viewport stays where they take it. The scroll position itself is not
+    /// changed, and with no scroll in flight this does nothing.
+    /// </remarks>
+    public async Task CancelScroll()
+    {
+        await InvokeInstance("cancelScroll");
+    }
+
+    /// <summary>
     /// Jumps to the start of the list. Call whenever the item set changes in a way that makes the
     /// previous offset meaningless, such as a new search query.
     /// </summary>

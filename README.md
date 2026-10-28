@@ -116,6 +116,9 @@ await _virtualize.ScrollToEnd(ScrollBehavior.Instant);
 await _virtualize.ScrollBy(300);
 await _virtualize.ScrollToTop();
 
+// The user started scrolling themselves: stop the scroll above from re-aiming at its target
+await _virtualize.CancelScroll();
+
 // Override a size directly, without waiting for the DOM to be measured
 await _virtualize.ResizeItem(index: 0, size: 200);
 
@@ -163,7 +166,7 @@ It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCall
 
 **Supplied by the component** (11), because virtual-core requires them as functions called on every scroll frame - marshalling them to .NET would mean an interop round-trip per frame: `count` (from `Items`), `estimateSize` (`ItemSizeEstimator` / `EstimatedItemSize`), `getItemKey` (`ItemKeyExtractor`), `measureElement`, `onChange`, and the scroll-source trio `getScrollElement` / `observeElementOffset` / `observeElementRect` / `scrollToFn` - which `UseWindowScroller` switches between the element and window variants (`observeWindowOffset`, `observeWindowRect`, `windowScroll`).
 
-**Methods:** `ScrollToIndex`, `ScrollToOffset`, `ScrollToEnd`, `ScrollBy`, `ScrollToTop`, `ResizeItem`, `Measure`, `GetTotalSize`, `GetVirtualIndexes`, `GetOffsetForIndex`, `GetVirtualItemForOffset`, `GetDistanceFromEnd`, `GetSnapshot` (scroll offset, total size, `isScrolling`, `isAtEnd`, direction and the rendered range), `TakeSnapshot`, plus `InvalidateItemSize` - which has no upstream equivalent; it evicts one key from the measurement cache and bumps the cache version.
+**Methods:** `ScrollToIndex`, `ScrollToOffset`, `ScrollToEnd`, `ScrollBy`, `ScrollToTop`, `CancelScroll`, `ResizeItem`, `Measure`, `GetTotalSize`, `GetVirtualIndexes`, `GetOffsetForIndex`, `GetVirtualItemForOffset`, `GetDistanceFromEnd`, `GetSnapshot` (scroll offset, total size, `isScrolling`, `isAtEnd`, direction and the rendered range), `TakeSnapshot`, plus `InvalidateItemSize` - which has no upstream equivalent; it evicts one key from the measurement cache and bumps the cache version.
 
 **Deliberately not surfaced:** virtual-core's internal plumbing - `elementsCache`, `targetWindow`, `updateDeps`, `calculateRange`, `indexFromElement`, `shouldAdjustScrollPositionOnItemSizeChange`, `scrollAdjustments`, `setOptions` (driven by the `Options` parameter) and the raw `options` / `measurementsCache` / `itemSizeCache` fields, which `GetSnapshot` and `TakeSnapshot` expose in a typed form instead.
 
