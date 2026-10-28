@@ -151,7 +151,7 @@ Holding the trailing side instead means a reversal is never worse than a symmetr
 
 It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCallback` calls `StateHasChanged` on the receiver after the handler returns, which on a page with a debounced search input re-renders the bound input with a stale value and clobbers in-flight keystrokes.
 
-## Coverage vs. @tanstack/virtual-core 3.17.7
+## Coverage vs. @tanstack/virtual-core 3.19.8
 
 **Complete.** Every `VirtualizerOptions` member is reachable, and every `Virtualizer` member that means something to a .NET caller is surfaced.
 
@@ -181,10 +181,10 @@ This is a real coupling: a virtual-core release could change them without it bei
 
 | | |
 |---|---|
-| Version | @tanstack/virtual-core 3.17.7 |
+| Version | @tanstack/virtual-core 3.19.8 |
 | File | `wwwroot/tanstack-virtual-core.js` |
-| Source | jsDelivr rollup bundle of npm `@tanstack/virtual-core@3.17.7` (`+esm`) |
-| SHA-256 | `fb7a4e29d452791c08522862d74b292418f2abdedbc52f46cf347a8bae9244e1` |
+| Source | jsDelivr rollup bundle of npm `@tanstack/virtual-core@3.19.8` (`+esm`) |
+| SHA-256 | `52c91d57d1bf1bd22bea2c3a64cd4cfcceea1808b747cbfd3bbbc13ea0ca487a` |
 
 ⚠️ **Deliberately the bundled build, not the npm tarball's `dist/esm/index.js`.**
 
