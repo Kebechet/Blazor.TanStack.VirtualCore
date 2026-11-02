@@ -97,6 +97,9 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     private string[] _itemKeys = [];
     private double[] _itemSizes = [];
 
+    /// <summary>What the JS side already holds of the item set, so a change sends it only the rest.</summary>
+    private readonly ItemSlotTable _itemSlots = new();
+
     private readonly List<PreparedRow> _preparedRows = [];
     private IReadOnlyList<VirtualItem>? _preparedFromVirtualItems;
     private IReadOnlyList<TItem>? _preparedFromItems;
@@ -247,6 +250,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                     _lastItemsRef = Items;
                     _lastOptionsRef = Options;
                     BuildDescriptors();
+                    _itemSlots.Reset(_itemKeys, _itemSizes);
                     _jsInstance = await _jsModule.InvokeAsync<IJSObjectReference>(
                         "create", _rootElement, _selfRef, _itemKeys, _itemSizes, EstimatedItemSize, Options);
                 }
@@ -310,7 +314,21 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             // setItems.
             _lastItemsRef = Items;
             BuildDescriptors();
-            await InvokeInstance("setItems", _itemKeys, _itemSizes);
+            var itemSetUpdate = _itemSlots.Encode(_itemKeys, _itemSizes);
+            try
+            {
+                await InvokeInstance(
+                    "setItems",
+                    itemSetUpdate.Order,
+                    itemSetUpdate.NewKeys,
+                    itemSetUpdate.NewSizes,
+                    itemSetUpdate.IsTableReset);
+            }
+            catch
+            {
+                _itemSlots.Invalidate();
+                throw;
+            }
 
             if (_isDisposed)
             {
@@ -524,8 +542,10 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
     /// <summary>
     /// Snapshots <see cref="Items"/> into the two arrays the JS side needs to answer the
-    /// virtualizer's <c>getItemKey</c> and <c>estimateSize</c> callbacks synchronously. Sent once
-    /// per <see cref="Items"/> reference change - never on scroll.
+    /// virtualizer's <c>getItemKey</c> and <c>estimateSize</c> callbacks synchronously. Rebuilt
+    /// once per <see cref="Items"/> reference change - never on scroll. They cross whole only when
+    /// the JS instance is created; a later change sends what <see cref="ItemSlotTable"/> finds the
+    /// JS side does not hold yet.
     /// </summary>
     /// <remarks>
     /// Two parallel arrays rather than one array of objects, because this crosses the interop

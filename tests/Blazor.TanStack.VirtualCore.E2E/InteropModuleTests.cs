@@ -288,6 +288,86 @@ public sealed class InteropModuleTests
         _fixture.AssertNoJsErrors();
     }
 
+    [Fact]
+    public async Task SetItems_ReorderedSubsetThenTheFullListAgain_KeepsTheSizesMeasuredForKeysThatStayed()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var samples = await _fixture.Page.EvaluateAsync<ItemSetSample[]>(
+            "async () => {" + _mountScript + @"
+                // Twenty 50px items, row-i in slot i. Rows 0-5 are measured at real, distinct heights,
+                // none of them 50, which virtual-core would not record as a change.
+                const list = mount(20, {});
+                const rows = [80, 30, 60, 40, 70, 20].map((height, index) => {
+                    const row = document.createElement('div');
+                    row.setAttribute('data-index', String(index));
+                    row.style.height = `${height}px`;
+                    list.root.appendChild(row);
+                    return row;
+                });
+                list.instance.measureRenderedRows();
+                rows.forEach(row => row.remove());
+
+                // Read through getMeasurements rather than takeSnapshot: takeSnapshot reads virtual-core's
+                // measurementsCache field, which 3.19 only refreshes when getMeasurements runs.
+                const read = () => {
+                    const measurements = list.instance.virtualizer.getMeasurements();
+                    return { keys: measurements.map(x => String(x.key)), sizes: measurements.map(x => x.size) };
+                };
+                const samples = [];
+
+                // Slots 4, 2 and 0, a key never sent before - slot 20 - then slots 10 to 12 as a run.
+                list.instance.setItems([4, 2, 0, 20, 10, -2], ['fresh'], [33], false);
+                samples.push(read());
+
+                // Back to the list as it was first sent: one run over slots 0 to 19.
+                list.instance.setItems([0, -19], [], [], false);
+                samples.push(read());
+
+                // The same set again, which .NET sends without an order.
+                list.instance.setItems(null, [], [], false);
+                samples.push(read());
+
+                // A rebuilt table holds only what the rebuilding call sent.
+                list.instance.setItems([1, 0], ['row-2', 'other'], [50, 45], true);
+                samples.push(read());
+
+                list.instance.dispose();
+                list.viewport.remove();
+                return samples;
+            }");
+
+        // Assert
+        // The subset keeps the measured rows it contains and estimates the rest.
+        Assert.Equal(["row-4", "row-2", "row-0", "fresh", "row-10", "row-11", "row-12"], samples[0].Keys);
+        Assert.Equal([70, 60, 80, 33, 50, 50, 50], samples[0].Sizes);
+
+        // Measurements survive per key, so rows 0, 2 and 4 come back measured. Rows 1, 3 and 5 left
+        // the set in between, which evicted theirs.
+        double[] fullListSizes = [80, 50, 60, 50, 70, .. Enumerable.Repeat(50d, 15)];
+        Assert.Equal(Enumerable.Range(0, 20).Select(x => $"row-{x}"), samples[1].Keys);
+        Assert.Equal(fullListSizes, samples[1].Sizes);
+
+        Assert.Equal(samples[1].Keys, samples[2].Keys);
+        Assert.Equal(fullListSizes, samples[2].Sizes);
+
+        // The slot table is only how the set travels; row-2's measurement is held by key and survives it.
+        Assert.Equal(["other", "row-2"], samples[3].Keys);
+        Assert.Equal([45, 60], samples[3].Sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    private sealed class ItemSetSample
+    {
+        [JsonPropertyName("keys")]
+        public string[] Keys { get; set; } = [];
+
+        [JsonPropertyName("sizes")]
+        public double[] Sizes { get; set; } = [];
+    }
+
     private sealed class CommandSample
     {
         [JsonPropertyName("overflowWhenIssued")]

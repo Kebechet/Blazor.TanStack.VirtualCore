@@ -51,14 +51,19 @@ const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resol
 
 class AdaptiveVirtualizeInstance {
 	// Keys and sizes arrive as two parallel arrays rather than one array of objects: this covers the
-	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON on
-	// every item-set change. For a few thousand items the object form cost that many allocations on
-	// the .NET side and a much larger payload.
+	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON. For
+	// a few thousand items the object form cost that many allocations on the .NET side and a much
+	// larger payload.
 	constructor(rootElement, dotNetRef, itemKeys, itemSizes, estimatedItemSize, options) {
 		this.rootElement = rootElement;
 		this.dotNetRef = dotNetRef;
 		this.itemKeys = itemKeys ?? [];
 		this.itemSizes = itemSizes ?? [];
+		// Every (key, size) pair sent so far, numbered in the order it arrived, which ItemSlotTable
+		// mirrors on the .NET side so that setItems can send slot ids instead of keys. The arrays the
+		// instance is created from are its first slots, slot i being item i.
+		this.slotKeys = [...this.itemKeys];
+		this.slotSizes = [...this.itemSizes];
 		this.estimatedItemSize = estimatedItemSize;
 		this.options = compact(options);
 		this.scrollContainer = this.findScrollContainer(rootElement);
@@ -384,7 +389,35 @@ class AdaptiveVirtualizeInstance {
 		this.notifyChange();
 	}
 
-	setItems(newItemKeys, newItemSizes) {
+	/**
+	 * Replaces the item set. It arrives as slots rather than keys - see ItemSlotTable on the .NET
+	 * side: the slots this call appends to the table (dropping the table first on isTableReset),
+	 * then the set as slot ids, where a negative entry -n continues the previous slot with the next
+	 * n. A null order is the set this instance already holds.
+	 */
+	setItems(order, newSlotKeys, newSlotSizes, isTableReset) {
+		if (isTableReset) {
+			this.slotKeys = [];
+			this.slotSizes = [];
+		}
+		for (let index = 0; index < newSlotKeys.length; index++) {
+			this.slotKeys.push(newSlotKeys[index]);
+			this.slotSizes.push(newSlotSizes[index]);
+		}
+
+		const newItemKeys = order === null ? this.itemKeys : [];
+		const newItemSizes = order === null ? this.itemSizes : [];
+		let slot = -1;
+		for (const entry of order ?? []) {
+			const firstSlot = entry < 0 ? slot + 1 : entry;
+			const lastSlot = entry < 0 ? slot - entry : entry;
+			for (slot = firstSlot; slot <= lastSlot; slot++) {
+				newItemKeys.push(this.slotKeys[slot]);
+				newItemSizes.push(this.slotSizes[slot]);
+			}
+			slot = lastSlot;
+		}
+
 		// Snapshot existing per-key measurements before measure() wipes them. An item-set change
 		// (a filter swap, an inserted child row) must not cost the measurements of items whose
 		// content did not change - otherwise expanding a group clears the group's measured size,
