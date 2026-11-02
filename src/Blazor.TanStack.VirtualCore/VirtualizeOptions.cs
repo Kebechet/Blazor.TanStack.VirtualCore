@@ -122,7 +122,7 @@ public sealed class VirtualizeOptions
     public VirtualizeRect? InitialRect { get; set; }
 
     /// <summary>
-    /// Measurements to seed the cache with, from a previous <c>TakeSnapshotAsync</c>. Restores exact
+    /// Measurements to seed the cache with, from a previous <c>TakeSnapshot</c>. Restores exact
     /// scroll geometry across a navigation without re-measuring every row.
     /// </summary>
     [JsonPropertyName("initialMeasurementsCache")]

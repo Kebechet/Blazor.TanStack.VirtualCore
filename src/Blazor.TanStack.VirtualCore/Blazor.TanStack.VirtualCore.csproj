@@ -26,8 +26,12 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
-    <Version>3.19.8.1</Version>
-    <PackageReleaseNotes>3.19.8.1: interop calls cut off by disposal no longer throw.
+    <Version>3.19.8.2</Version>
+    <PackageReleaseNotes>3.19.8.2: an Items change sends only what the JS side does not hold yet, and snapshots report current sizes.
+
+A change of Items used to send every key and size estimate across the interop bridge again; in a Blazor Hybrid app that is JSON copied through the WebView bridge per keystroke of a search. Both sides now keep a table of the pairs already sent, so a change travels as slot ids (runs packed into two numbers) plus only the new pairs, and an unchanged set sends nothing but a null order: for a 4,010-row search the setItems payload went from 293,225 to 21,170 characters. Per-key measurements survive a change as before. TakeSnapshot, GetOffsetForIndex, ScrollToIndex and GetSnapshot's StartIndex/EndIndex no longer read virtual-core state that lags after a ResizeObserver delivery or an InvalidateItemSize, so they report the sizes and range the virtualizer actually uses, and ScrollToIndex lands its first write on the target.
+
+3.19.8.1: interop calls cut off by disposal no longer throw.
 
 A ScrollToIndex, ScrollToOffset, ScrollToEnd, ScrollBy, ScrollToTop, CancelScroll, ResizeItem, Measure or InvalidateItemSize, or a GetTotalSize, GetVirtualIndexes, GetOffsetForIndex, GetVirtualItemForOffset, GetDistanceFromEnd, GetSnapshot or TakeSnapshot, that was still in flight when the component was disposed no longer throws once the JS side goes away - in a reloaded BlazorWebView it threw a JSException, and a caller that had not awaited it saw an unobserved task exception. A command now completes, a query returns its default, and the failure is logged through ILogger&lt;AdaptiveVirtualize&lt;TItem&gt;&gt;: at Debug for the known ways the JS side goes away, at Warning for anything else. The same holds for a render whose setOptions, setItems or measureRenderedRows was in flight, which surfaced as an unhandled render exception. A failure while the component is alive still throws. Callers no longer need a catch of their own around these calls for teardown.
 

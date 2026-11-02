@@ -225,6 +225,45 @@ public sealed class VirtualizationTests
     }
 
     [Fact]
+    public async Task CollapsingAndReExpandingAGroup_RendersTheSameRowsAgain()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync("components-adaptivevirtualize--expand-and-collapse");
+        await _fixture.Page.ClickAsync("[data-index='0'] .row-group");
+        await WaitForChildRowCountAsync(3);
+        await _fixture.Page.ClickAsync("[data-index='0'] .row-group");
+        await WaitForChildRowCountAsync(0);
+
+        // Act
+        // Every row of the re-expanded set has been sent before, so it travels as slot ids alone and
+        // the JS side has to rebuild the keys from its own table.
+        await _fixture.Page.ClickAsync("[data-index='0'] .row-group");
+        await WaitForChildRowCountAsync(3);
+        var titles = await _fixture.Page.EvaluateAsync<string[]>(
+            @"() => Array.from(document.querySelectorAll('[data-index]'))
+                .sort((a, b) => parseInt(a.getAttribute('data-index'), 10) - parseInt(b.getAttribute('data-index'), 10))
+                .slice(0, 5)
+                .map(el => el.querySelector('.row-title').textContent)");
+        var rows = await _fixture.ReadRenderedRowsAsync();
+
+        // Assert
+        // A key rebuilt wrongly fails the component's key check, and that row is not rendered at all.
+        Assert.EndsWith("Group 0", titles[0]);
+        Assert.Equal(["Child 0.0", "Child 0.1", "Child 0.2"], titles[1..4]);
+        Assert.EndsWith("Group 1", titles[4]);
+        for (var index = 1; index < rows.Count; index++)
+        {
+            var previous = rows[index - 1];
+            var current = rows[index];
+            Assert.True(
+                current.Offset(false) >= previous.Offset(false) + previous.Height - 1.5,
+                $"Row {current.Index} at {current.Offset(false):F1}px overlaps row {previous.Index}, which ends at {previous.Offset(false) + previous.Height:F1}px.");
+        }
+
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
     public async Task LayoutMeasuredCallback_FiresAfterMeasurement()
     {
         // Arrange
@@ -242,5 +281,13 @@ public sealed class VirtualizationTests
         // pattern silently degrades to estimate-then-snap.
         Assert.True(StoryState.Int(state, "measuredPasses") > 0);
         _fixture.AssertNoJsErrors();
+    }
+
+    private async Task WaitForChildRowCountAsync(int count)
+    {
+        await _fixture.Page.WaitForFunctionAsync(
+            "count => document.querySelectorAll('.row-child').length === count",
+            count,
+            new Microsoft.Playwright.PageWaitForFunctionOptions { Timeout = 15_000 });
     }
 }
