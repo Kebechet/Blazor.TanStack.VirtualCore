@@ -607,7 +607,11 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	getSnapshot() {
-		const range = this.virtualizer.range;
+		// The range field lags behind exactly as measurementsCache does - see refreshMeasurements -
+		// because calculateRange is the only thing that assigns it. It is memoized, and it brings the
+		// measurements up to date as well. Not getVirtualIndexes, which also writes the range into
+		// maybeNotify's dependencies, as if a render had already shown it.
+		const range = this.virtualizer.calculateRange();
 		return {
 			scrollOffset: this.virtualizer.scrollOffset ?? 0,
 			totalSize: this.virtualizer.getTotalSize(),

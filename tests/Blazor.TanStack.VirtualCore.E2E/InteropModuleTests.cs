@@ -496,6 +496,51 @@ public sealed class InteropModuleTests
         _fixture.AssertNoJsErrors();
     }
 
+    [Fact]
+    public async Task GetSnapshot_RightAfterAMeasurementChanges_ReportsTheRangeTheVirtualizerUses()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var ranges = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(20, { useAnimationFrameWithResizeObserver: false });
+                const range = () => {
+                    const snapshot = list.instance.getSnapshot();
+                    return `${snapshot.startIndex}-${snapshot.endIndex}`;
+                };
+
+                // Rows of 80, 30, 60 and then 50px in the 200px viewport: rows 0 to 3 are visible.
+                const measured = range();
+
+                // Grown to 300px, row 0 fills the viewport alone. As in the TakeSnapshot test, this
+                // observer runs straight after virtual-core's has measured it.
+                const insideObserver = await new Promise(resolve => {
+                    new ResizeObserver((_, observer) => {
+                        observer.disconnect();
+                        resolve(range());
+                    }).observe(list.rows[0]);
+                    list.rows[0].style.height = '300px';
+                });
+                await nextFrame();
+                await nextFrame();
+
+                // Back at its 50px estimate, row 0 leaves room for rows 0 to 4.
+                list.instance.invalidateItemSize('row-0');
+                const afterInvalidation = range();
+
+                list.instance.dispose();
+                list.viewport.remove();
+                return [measured, insideObserver, afterInvalidation];
+            }");
+
+        // Assert
+        // Joined, so a failure shows every sample rather than only the first that differs.
+        Assert.Equal("0-3, 0-0, 0-4", string.Join(", ", ranges));
+        _fixture.AssertNoJsErrors();
+    }
+
     private sealed class ItemSetSample
     {
         [JsonPropertyName("keys")]
