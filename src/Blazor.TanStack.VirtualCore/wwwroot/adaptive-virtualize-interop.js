@@ -495,7 +495,11 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	scrollToIndex(index, align, behavior) {
-		return this.runScrollCommand(() => this.virtualizer.scrollToIndex(index, { align, behavior }));
+		return this.runScrollCommand(() => {
+			// virtual-core aims the write through getOffsetForIndex, which reads measurementsCache.
+			this.refreshMeasurements();
+			this.virtualizer.scrollToIndex(index, { align, behavior });
+		});
 	}
 
 	scrollToOffset(offset, align, behavior) {
@@ -586,6 +590,8 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	getOffsetForIndex(index, align) {
+		// virtual-core computes the offset from measurementsCache.
+		this.refreshMeasurements();
 		// Upstream returns [offset, alignment]; only the offset is meaningful to a caller.
 		const result = this.virtualizer.getOffsetForIndex(index, align);
 		return Array.isArray(result) ? result[0] : result;
@@ -621,8 +627,21 @@ class AdaptiveVirtualizeInstance {
 	takeSnapshot() {
 		// measurementsCache is the array shape initialMeasurementsCache expects back, so a snapshot
 		// taken here can be handed straight to a later mount.
-		const measurements = this.virtualizer.measurementsCache ?? [];
+		const measurements = this.refreshMeasurements() ?? [];
 		return measurements.map(toPayload);
+	}
+
+	/**
+	 * Brings virtual-core's measurementsCache up to date and returns it. The field only catches up
+	 * when getMeasurements runs, which every notification normally makes happen - but notifyChange
+	 * holds back one raised inside a ResizeObserver callback until the next task, and
+	 * invalidateItemSize raises none. Until something does, the field still holds sizes the
+	 * virtualizer has stopped using: a row a ResizeObserver has just re-measured, or one whose
+	 * measurement was just evicted. getMeasurements is memoized, so this costs nothing when nothing
+	 * changed.
+	 */
+	refreshMeasurements() {
+		return this.virtualizer.getMeasurements();
 	}
 
 	dispose() {

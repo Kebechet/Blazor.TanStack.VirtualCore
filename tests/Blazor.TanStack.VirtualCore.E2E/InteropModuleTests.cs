@@ -41,6 +41,33 @@ public sealed class InteropModuleTests
             return list;
         };";
 
+    /// <summary>
+    /// Appended to <see cref="_mountScript"/> by tests that need measured rows. <c>mountMeasured</c>
+    /// mounts a list with 2000px to scroll in, then renders rows 0-2 at 80, 30 and 60px and measures
+    /// them as a Blazor render and <c>measureRenderedRows</c> do. virtual-core observes each row's
+    /// size from then on.
+    /// </summary>
+    private const string _measuredRowsScript = @"
+        const mountMeasured = async (itemCount, options) => {
+            const list = mount(itemCount, options);
+            list.root.style.height = '2000px';
+            // Measured a frame later, as in the app. In the constructor's own task a notification is
+            // still held back, which would hide the measurement from whatever reads it.
+            await nextFrame();
+            await nextFrame();
+            list.rows = [80, 30, 60].map((height, index) => {
+                const row = document.createElement('div');
+                row.setAttribute('data-index', String(index));
+                row.style.height = `${height}px`;
+                list.root.appendChild(row);
+                return row;
+            });
+            list.instance.measureRenderedRows();
+            await nextFrame();
+            await nextFrame();
+            return list;
+        };";
+
     private readonly DemoFixture _fixture;
 
     public InteropModuleTests(DemoFixture fixture)
@@ -310,11 +337,9 @@ public sealed class InteropModuleTests
                 list.instance.measureRenderedRows();
                 rows.forEach(row => row.remove());
 
-                // Read through getMeasurements rather than takeSnapshot: takeSnapshot reads virtual-core's
-                // measurementsCache field, which 3.19 only refreshes when getMeasurements runs.
                 const read = () => {
-                    const measurements = list.instance.virtualizer.getMeasurements();
-                    return { keys: measurements.map(x => String(x.key)), sizes: measurements.map(x => x.size) };
+                    const measurements = list.instance.takeSnapshot();
+                    return { keys: measurements.map(x => x.key), sizes: measurements.map(x => x.size) };
                 };
                 const samples = [];
 
@@ -356,6 +381,118 @@ public sealed class InteropModuleTests
         // The slot table is only how the set travels; row-2's measurement is held by key and survives it.
         Assert.Equal(["other", "row-2"], samples[3].Keys);
         Assert.Equal([45, 60], samples[3].Sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task TakeSnapshot_RightAfterAMeasurementChanges_ReportsTheSizesTheVirtualizerUses()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var samples = await _fixture.Page.EvaluateAsync<double[][]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                // With useAnimationFrameWithResizeObserver virtual-core measures a frame later,
+                // after the observer below has already run.
+                const list = await mountMeasured(20, { useAnimationFrameWithResizeObserver: false });
+                const sizes = () => list.instance.takeSnapshot().slice(0, 3).map(x => x.size);
+
+                // An observer created later on the same element is called straight after
+                // virtual-core's, which has measured the row by then. The notification about that
+                // measurement goes out a task later.
+                const insideObserver = await new Promise(resolve => {
+                    new ResizeObserver((_, observer) => {
+                        observer.disconnect();
+                        resolve(sizes());
+                    }).observe(list.rows[1]);
+                    list.rows[1].style.height = '90px';
+                });
+                await nextFrame();
+                await nextFrame();
+
+                // invalidateItemSize evicts a measurement without notifying at all.
+                list.instance.invalidateItemSize('row-0');
+                const afterInvalidation = sizes();
+
+                list.instance.dispose();
+                list.viewport.remove();
+                return [insideObserver, afterInvalidation];
+            }");
+
+        // Assert
+        // The snapshot exists to be restored on a later mount, which would then place rows by sizes
+        // this list had already stopped using.
+        Assert.Equal([80, 90, 60], samples[0]);
+        Assert.Equal([50, 90, 60], samples[1]);
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task GetOffsetForIndex_RightAfterARowAboveChanges_UsesTheSizesTheVirtualizerUses()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var offsets = await _fixture.Page.EvaluateAsync<double[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(20, { useAnimationFrameWithResizeObserver: false });
+                const offsetOfRow3 = () => list.instance.getOffsetForIndex(3, 'start');
+
+                const insideObserver = await new Promise(resolve => {
+                    new ResizeObserver((_, observer) => {
+                        observer.disconnect();
+                        resolve(offsetOfRow3());
+                    }).observe(list.rows[1]);
+                    list.rows[1].style.height = '90px';
+                });
+                await nextFrame();
+                await nextFrame();
+
+                list.instance.invalidateItemSize('row-0');
+                const afterInvalidation = offsetOfRow3();
+
+                list.instance.dispose();
+                list.viewport.remove();
+                return [insideObserver, afterInvalidation];
+            }");
+
+        // Assert
+        // Rows 0-2 at 80 + 90 + 60, then with row 0 back at its 50px estimate.
+        Assert.Equal([230, 200], offsets);
+        _fixture.AssertNoJsErrors();
+    }
+
+    [Fact]
+    public async Task ScrollToIndex_RightAfterInvalidateItemSize_FirstWriteLandsOnTheTarget()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var scrollTops = await _fixture.Page.EvaluateAsync<double[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(40, {});
+
+                // Evicting row 0's 80px measurement moves row 10 from 520 up to 490.
+                list.instance.invalidateItemSize('row-0');
+                list.instance.scrollToIndex(10, 'start', 'auto');
+                const firstWrite = list.viewport.scrollTop;
+                await nextFrame();
+                await nextFrame();
+                const settled = list.viewport.scrollTop;
+
+                list.instance.dispose();
+                list.viewport.remove();
+                return [firstWrite, settled];
+            }");
+
+        // Assert
+        // virtual-core re-aims a frame later anyway, so a first write at the old offset shows as a
+        // jump of the evicted difference - in the toggle-a-group-then-scroll-to-it flow
+        // InvalidateItemSize exists for.
+        Assert.Equal([490, 490], scrollTops);
         _fixture.AssertNoJsErrors();
     }
 
