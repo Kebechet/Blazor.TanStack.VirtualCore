@@ -26,8 +26,12 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
-    <Version>3.19.8.3</Version>
-    <PackageReleaseNotes>3.19.8.3: rows keep their components across an Items change, and JS places them without waiting for .NET.
+    <Version>3.19.8.4</Version>
+    <PackageReleaseNotes>3.19.8.4: the rows an Items change moves are no longer painted hidden, and InvalidateItemSize keeps the size a row is rendered at.
+
+setOptions and setItems now go out from OnParametersSet, in that order, ahead of the render that shows the change, instead of from OnAfterRenderAsync after it. That render draws the rows an Items change moves hidden until the JS side holds the set, and on a WebView bridge the set used to arrive a round trip later: on a Samsung A53 every row below an expanding group was painted hidden for up to 220 ms. It now arrives first, and the rows are placed and shown before the frame is painted. InvalidateItemSize reads a rendered row's size off the row instead of dropping it, so a set arriving before the row's content changes no longer moves the rows below to the estimate; the ResizeObserver takes the new size when the content changes, and a row that is not rendered, or any row under UseCachedMeasurements, still falls back to the estimate. A row of the replaced item set that resizes before the render lands keeps its new size under its own key instead of losing it.
+
+3.19.8.3: rows keep their components across an Items change, and JS places them without waiting for .NET.
 
 A row whose placement went stale on an Items change used to be skipped, so every row component was disposed and built again one round trip later, even rows in both sets; it is now rendered under its own key and hidden until a matching placement arrives. Rows carry a data-key attribute, and the JS side moves every row whose key matches its own item set as soon as it knows the new layout - inside the ResizeObserver callback, before the frame is painted, and when setItems arrives, which also shows the rows .NET hid - instead of one interop round trip later through a .NET render. On a slow WebView bridge that removes the overlap below a row that grew and most of the blank after an insert. A size the ResizeObserver measured now survives the setItems that follows InvalidateItemSize, and a row rendered from an item set JS has not received yet no longer has its size recorded under another item's key.
 

@@ -210,6 +210,75 @@ public class AdaptiveVirtualizeTests
 		initializedCount.Value.ShouldBe(3);
 	}
 
+	/// <summary>
+	/// The rows a new item set moves render hidden until the JS side holds that set. Sent from
+	/// OnAfterRenderAsync, the set reached JS only after the render did - on an Android WebView 50-220 ms
+	/// later, and the WebView painted every row below an expanding group hidden in the meantime.
+	/// </summary>
+	[Fact]
+	public void ItemsChange_SetItems_ReachesTheJSInstanceBeforeTheRenderThatShowsTheNewItems()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS();
+		var module = new FakeJS().Returning("create", instance);
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a", "b"]);
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "a" },
+				new VirtualItem { Index = 1, Start = 10, Size = 10, End = 20, Key = "b" },
+			],
+			totalSize: 20)).Wait();
+		List<string?>? renderedKeysWhenSetItemsArrived = null;
+		instance.OnCall = identifier =>
+		{
+			if (identifier == "setItems")
+			{
+				renderedKeysWhenSetItemsArrived = component.FindAll("[data-key]")
+					.Select(x => x.GetAttribute("data-key"))
+					.ToList();
+			}
+		};
+
+		// Act
+		// "c" inserted after "a", the way an expanding group inserts its children.
+		component.SetParametersAndRender(parameters => parameters.Add(p => p.Items, (IReadOnlyList<string>) ["a", "c", "b"]));
+
+		// Assert
+		renderedKeysWhenSetItemsArrived.ShouldBe(["a", "b"]);
+		component.FindAll("[data-key]")
+			.Select(x => x.GetAttribute("data-key"))
+			.ShouldBe(["a", "c"]);
+	}
+
+	/// <summary>
+	/// setItems reacts to the item count and edge keys through options such as FollowOnAppend, so when both change
+	/// in one render the JS side has to hold the new options first - or an append follows, or fails to follow, the
+	/// options it was meant to stop applying.
+	/// </summary>
+	[Fact]
+	public void ItemsAndOptionsChange_SetOptions_ReachesTheJSInstanceBeforeSetItems()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var instance = new FakeJS();
+		var module = new FakeJS().Returning("create", instance);
+		context.Services.AddSingleton<IJSRuntime>(new FakeJS().Returning("import", module));
+		var component = RenderWith(context, ["a"]);
+
+		// Act
+		component.SetParametersAndRender(parameters => parameters
+			.Add(p => p.Options, new VirtualizeOptions())
+			.Add(p => p.Items, (IReadOnlyList<string>) ["a", "b"]));
+
+		// Assert
+		instance.Calls
+			.Select(call => call.Identifier)
+			.Where(identifier => identifier is "setOptions" or "setItems")
+			.ShouldBe(["setOptions", "setItems"]);
+	}
+
 	private sealed class InitializedCount
 	{
 		public int Value { get; set; }
@@ -317,9 +386,9 @@ public class AdaptiveVirtualizeTests
 		var component = RenderWith(context, ["a"]);
 		var layoutMeasuredCount = 0;
 
-		// New options and new items in one render: OnAfterRenderAsync awaits setOptions, setItems and
-		// measureRenderedRows in turn, then calls OnLayoutMeasured. The call under test stays in
-		// flight; the others answer at once.
+		// New options and new items in one render: setOptions and setItems go out ahead of it, then
+		// OnAfterRenderAsync awaits them, calls measureRenderedRows and then OnLayoutMeasured. The call
+		// under test stays in flight; the others answer at once.
 		component.SetParametersAndRender(parameters => parameters
 			.Add(p => p.Options, new VirtualizeOptions())
 			.Add(p => p.Items, (IReadOnlyList<string>) ["a", "b"])
@@ -350,10 +419,11 @@ public class AdaptiveVirtualizeTests
 		// Anything after the call in flight would go to an instance disposal is releasing. Depending on
 		// how far disposal has got, that either reaches the instance after its dispose call or throws
 		// on the render path - which the renderer reports, so both are checked.
-		string[] renderCalls = ["setOptions", "setItems", "measureRenderedRows"];
-		foreach (var laterCall in renderCalls.SkipWhile(call => call != callInFlight).Skip(1))
+		// setOptions and setItems both go out before the render, so only measureRenderedRows comes after
+		// either of them.
+		if (callInFlight != "measureRenderedRows")
 		{
-			instance.VerifyNotInvoke(laterCall);
+			instance.VerifyNotInvoke("measureRenderedRows");
 		}
 
 		layoutMeasuredCount.ShouldBe(0);
@@ -582,6 +652,9 @@ public class AdaptiveVirtualizeTests
 
 		public bool IsReleased { get; private set; }
 
+		/// <summary>Runs as each call arrives, before it is answered, so a test can see what was rendered then.</summary>
+		public Action<string>? OnCall { get; set; }
+
 		public FakeJS Returning(string identifier, object? result)
 		{
 			_results[identifier] = result;
@@ -614,6 +687,7 @@ public class AdaptiveVirtualizeTests
 		public async ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
 		{
 			Calls.Add((identifier, args));
+			OnCall?.Invoke(identifier);
 			if (_heldCalls.TryGetValue(identifier, out var heldCall))
 			{
 				// Resumes on the thread calling Answer rather than queueing behind the renderer, so the
