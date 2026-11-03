@@ -196,9 +196,122 @@ public sealed class InteropModuleTests
     }
 
     /// <summary>
+    /// virtual-core answers a measurement without a ResizeObserver entry from its size cache, so measuring an
+    /// invalidated row through it kept the size the row had before - wrong whenever the row had changed already.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateItemSize_RowAlreadyChanged_TakesItsCurrentSize()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var secondRowOffset = await _fixture.Page.EvaluateAsync<double>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+
+                // Grown and invalidated in one task, before any ResizeObserver delivery.
+                list.rows[0].style.height = '200px';
+                list.instance.invalidateItemSize('row-0');
+                const offset = list.instance.getOffsetForIndex(1, 'start');
+
+                list.viewport.remove();
+                return offset;
+            }");
+
+        // Assert
+        // The size cached before the change would have put row 1 at 80px.
+        Assert.Equal(200, secondRowOffset);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// With UseCachedMeasurements virtual-core never reads a row's size, so there is nothing to measure an invalidated
+    /// row by: its size is dropped and the estimate stands in.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateItemSize_CachedMeasurements_FallsBackToTheEstimate()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var secondRowOffsets = await _fixture.Page.EvaluateAsync<double[]>(
+            "async () => {" + _mountScript + @"
+                const list = mount(100, { useCachedMeasurements: true });
+                list.root.style.height = '2000px';
+                await nextFrame();
+                await nextFrame();
+                const row = document.createElement('div');
+                row.setAttribute('data-index', '0');
+                row.setAttribute('data-key', 'row-0');
+                row.style.height = '80px';
+                list.root.appendChild(row);
+                list.instance.resizeItem(0, 80);
+                const beforeInvalidation = list.instance.getOffsetForIndex(1, 'start');
+
+                list.instance.invalidateItemSize('row-0');
+                const afterInvalidation = list.instance.getOffsetForIndex(1, 'start');
+
+                list.viewport.remove();
+                return [beforeInvalidation, afterInvalidation];
+            }");
+
+        // Assert
+        // Kept, the cached 80px would never change again: in this mode a ResizeObserver delivery answers from it too.
+        Assert.Equal([80, 50], secondRowOffsets);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// The item set reaches JS ahead of the render that shows it, so a row of the set it replaced can resize in
+    /// between, while its index belongs to another item here. Dropping that measurement left the row at the size
+    /// cached before it: virtual-core answers a measurement without a ResizeObserver entry from its size cache, so
+    /// the measure pass after the render read the old size back, and the row overlapped the one below.
+    /// </summary>
+    [Fact]
+    public async Task ResizeObserver_RowOfTheReplacedItemSet_KeepsItsNewSizeOnceRenderedAgain()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sizes = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+
+                // The set [row-0, row-2, row-1, ...] arrives ahead of its render, and row-1 - still drawn at
+                // index 1, which this instance now holds for row-2 - grows.
+                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+                [keys[1], keys[2]] = [keys[2], keys[1]];
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                list.rows[1].style.height = '300px';
+                await nextFrame();
+                await nextFrame();
+
+                // The render lands: row-2's element moves to index 1 and row-1's to index 2.
+                list.rows[1].setAttribute('data-index', '2');
+                list.rows[2].setAttribute('data-index', '1');
+                list.root.insertBefore(list.rows[2], list.rows[1]);
+                list.instance.measureRenderedRows();
+                const sizesOfFirstRows = list.instance.takeSnapshot().slice(0, 3).map(x => `${x.key}=${x.size}`);
+
+                list.viewport.remove();
+                return sizesOfFirstRows;
+            }");
+
+        // Assert
+        Assert.Equal(["row-0=80", "row-2=60", "row-1=300"], sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
     /// .NET renders a new item set one interop message before setItems brings it to JS, and Blazor moves keyed rows
     /// to their new index meanwhile. A row that resizes in that window carries an index this instance still holds
-    /// for another item, and recording its size there left an exercise row with a section header's height.
+    /// for another item, and recording its size there left an exercise row with a section header's height. The size
+    /// belongs to the row's own key, where the render that shows the set reuses the element.
     /// </summary>
     [Fact]
     public async Task ResizeObserver_RowFromANewerItemSet_IsMeasuredOnlyUnderItsOwnKey()
@@ -234,7 +347,8 @@ public sealed class InteropModuleTests
             }");
 
         // Assert
-        Assert.Equal(["row-0=80", "row-1=30", "row-2=60"], sizes[..3]);
+        // Recorded under its own key straight away, and never under row-1, the key its index still has here.
+        Assert.Equal(["row-0=80", "row-1=30", "row-2=300"], sizes[..3]);
         Assert.Equal(["row-0=80", "row-2=300", "row-1=30"], sizes[3..]);
         _fixture.AssertNoJsErrors();
     }

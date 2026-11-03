@@ -180,9 +180,15 @@ class AdaptiveVirtualizeInstance {
 						// The row was rendered from an item set other than the one this instance holds, so its
 						// index belongs to another item here, and virtual-core would record the size
 						// under that item's key - the likely way an exercise row once ended up with a section
-						// header's 38px and overlapped the row below for good. Report the size already held
-						// instead, and leave the row to the measureRenderedRows that follows the next item-set render.
-						this.measuredKeys.delete(renderedKey);
+						// header's 38px and overlapped the row below for good. Report the size already held for
+						// the index instead, and keep the row's own size under its own key: the render that shows
+						// the row in this instance's set reuses the element, and the measure pass after it answers
+						// from the cache, so a size dropped here would not be read again.
+						if (instance.options.useCachedMeasurements) {
+							this.measuredKeys.delete(renderedKey);
+						} else {
+							this.setMeasuredSize(renderedKey, measureElement(element, entry, instance));
+						}
 						return instance.itemSizeCache.get(heldItem.key) ?? heldItem.size;
 					}
 					// A ResizeObserver measurement is as fresh as one from measureRenderedRows, and setItems
@@ -601,6 +607,23 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	/**
+	 * Writes a size read off a rendered row into virtual-core's cache under the row's own key, and moves
+	 * the rows when it changed. virtual-core answers a measurement without a ResizeObserver entry from
+	 * that cache, so a size that is not written there is not read off the row again.
+	 */
+	setMeasuredSize(key, size) {
+		this.measuredKeys.add(key);
+		const cache = this.virtualizer.itemSizeCache;
+		if (!(cache instanceof Map) || cache.get(key) === size) {
+			return;
+		}
+
+		cache.set(key, size);
+		this.virtualizer.itemSizeCacheVersion++;
+		this.notifyChange();
+	}
+
+	/**
 	 * Called when an item's content is about to change shape while its key stays the same (a group
 	 * toggling collapsed/expanded changes its size by 100+px without changing identity), so that
 	 * setItems does not preserve a measurement that is about to go stale.
@@ -609,14 +632,19 @@ class AdaptiveVirtualizeInstance {
 	 * set ahead of the render that shows the change, and falling back to the estimate there moved every
 	 * row below to where the estimate put them, around a row that had not changed yet. virtual-core's
 	 * ResizeObserver measures the row again the moment its content does change. A row that is not
-	 * rendered has nothing to measure, so its size is dropped and the estimate stands in until it is.
+	 * rendered has nothing to measure, and under useCachedMeasurements virtual-core never reads a row's
+	 * size, so there the size is dropped and the estimate stands in until it is measured.
 	 */
 	invalidateItemSize(key) {
-		const row = [...this.rootElement.children]
-			.find(element => element.getAttribute(KEY_ATTRIBUTE) === key && this.indexOfCurrentRow(element) >= 0);
+		const row = this.virtualizer.options.useCachedMeasurements
+			? undefined
+			: [...this.rootElement.children]
+				.find(element => element.getAttribute(KEY_ATTRIBUTE) === key && this.indexOfCurrentRow(element) >= 0);
 		if (row) {
+			// Observed from here on, in case .NET rendered this element after the last measure pass.
 			this.virtualizer.measureElement(row);
-			this.measuredKeys.add(key);
+			// Read off the row itself: without a ResizeObserver entry virtual-core answers from the cache.
+			this.setMeasuredSize(key, this.virtualizer.options.horizontal ? row.offsetWidth : row.offsetHeight);
 			return;
 		}
 
