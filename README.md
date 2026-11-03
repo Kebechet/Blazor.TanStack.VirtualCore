@@ -186,6 +186,8 @@ This is a real coupling: a virtual-core release could change them without it bei
 
 Behaviour that belongs in virtual-core is carried here only until the upstream fix ships, and listed here with the upstream PR and the test that pins it. There are none in this release: the three that 3.19.8 carried - the Android touch-fling stop (https://github.com/TanStack/virtual/pull/1347), the negated `IsRtl` scroll write (https://github.com/TanStack/virtual/pull/1291) and the measurement refresh before `getOffsetForIndex` (https://github.com/TanStack/virtual/pull/1363) - shipped in virtual-core 3.19.9 and 3.19.11. Their tests stay, and now pin virtual-core's own behaviour.
 
+⚠️ **Known virtual-core issue, carried without a stopgap: on a touchscreen laptop, a scroll command issued mid-fling can be lost.** With a classic scrollbar, one that takes layout space, a `ScrollToIndex`, `ScrollToOffset` or `ScrollToEnd` issued while a touch fling is still moving the list is dropped when the fling moves on after it and then stops - at the end of the list, or fading out. virtual-core cannot stop that fling, because hiding the scrollbar would reflow the list, so it holds the command until the fling ends. It then reads the fling's last speed as a finger having caught the fling and drops the command - a check written for iOS, where a finger that catches a fling fires no touch event; elsewhere it does. Phones are not affected: their overlay scrollbars let virtual-core stop the fling and write the command.
+
 ⚠️ **Remove a stopgap together with the bump to the virtual-core release that contains the fix.** Kept past it, a stopgap applies the fix a second time - the `IsRtl` negation would have sent every write back to the start.
 
 ## Vendored library provenance
