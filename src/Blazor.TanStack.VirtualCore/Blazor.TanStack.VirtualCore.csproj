@@ -26,8 +26,12 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
-    <Version>3.19.8.4</Version>
-    <PackageReleaseNotes>3.19.8.4: the rows an Items change moves are no longer painted hidden, and InvalidateItemSize keeps the size a row is rendered at.
+    <Version>3.19.11</Version>
+    <PackageReleaseNotes>3.19.11: @tanstack/virtual-core 3.19.8 -&gt; 3.19.11, and the three stopgaps it makes redundant are gone.
+
+virtual-core now does itself what this package did in its place: it stops a touch fling before a ScrollToIndex, ScrollToOffset or ScrollToEnd issued during it on Android too, negates the scroll write of a horizontal IsRtl list, and computes GetOffsetForIndex - and the first write of ScrollToIndex - from the current measurements. Behaviour that changes with it: with a classic scrollbar that takes layout space (a touchscreen laptop), a command issued mid-fling now waits for the fling to end, about 150 ms after its last frame, instead of being written at once - and is dropped when the fling moves on after the command, a virtual-core issue described in the README; a ScrollBy issued mid-fling is written at once without stopping the fling, because its target is relative to where the fling is; and under IsRtl in window-scroller mode the write is no longer negated, which matches how virtual-core reads the window's offset. Also from virtual-core: rows that a render inside a ResizeObserver callback mounts are observed from the next frame, and a scroll offset left past the end of a list that just shrank keeps a full rendered range instead of only the last row.
+
+3.19.8.4: the rows an Items change moves are no longer painted hidden, and InvalidateItemSize keeps the size a row is rendered at.
 
 setOptions and setItems now go out from OnParametersSet, in that order, ahead of the render that shows the change, instead of from OnAfterRenderAsync after it. That render draws the rows an Items change moves hidden until the JS side holds the set, and on a WebView bridge the set used to arrive a round trip later: on a Samsung A53 every row below an expanding group was painted hidden for up to 220 ms. It now arrives first, and the rows are placed and shown before the frame is painted. InvalidateItemSize reads a rendered row's size off the row instead of dropping it, so a set arriving before the row's content changes no longer moves the rows below to the estimate; the ResizeObserver takes the new size when the content changes, and a row that is not rendered, or any row under UseCachedMeasurements, still falls back to the estimate. A row of the replaced item set that resizes before the render lands keeps its new size under its own key instead of losing it.
 

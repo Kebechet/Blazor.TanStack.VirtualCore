@@ -675,13 +675,14 @@ public sealed class InteropModuleTests
                     list.viewport.scrollTop = 600;
                     await nextFrame();
 
-                    const command = list.instance.scrollToIndex(100, 'start', 'auto');
+                    list.instance.scrollToIndex(100, 'start', 'auto');
                     const sample = {
                         overflowWhenIssued: list.viewport.style.getPropertyValue('overflow-y'),
                         scrollTopWhenIssued: list.viewport.scrollTop,
                     };
-                    await command;
-                    await delay(100);
+                    // Past the ~150 ms after the last fling frame at which virtual-core writes a
+                    // command it could not stop the fling for.
+                    await delay(300);
                     sample.overflowAfterwards = list.viewport.style.getPropertyValue('overflow-y');
                     sample.scrollTopAfterwards = list.viewport.scrollTop;
                     list.instance.dispose();
@@ -707,11 +708,13 @@ public sealed class InteropModuleTests
         Assert.Equal(5000, wheel.ScrollTopWhenIssued);
 
         // A scrollbar that takes layout space would vanish for two frames and reflow the list (a
-        // touchscreen laptop), so the overflow is put back before anything paints and the write
-        // goes out at once.
+        // touchscreen laptop), so the overflow is put back before anything paints. The fling is not
+        // stopped, so virtual-core holds the write until the fling has ended.
         var classicScrollbar = runs[2];
         Assert.Equal("auto", classicScrollbar.OverflowWhenIssued);
-        Assert.Equal(5000, classicScrollbar.ScrollTopWhenIssued);
+        Assert.Equal(600, classicScrollbar.ScrollTopWhenIssued);
+        Assert.Equal("auto", classicScrollbar.OverflowAfterwards);
+        Assert.Equal(5000, classicScrollbar.ScrollTopAfterwards);
         _fixture.AssertNoJsErrors();
     }
 

@@ -156,7 +156,7 @@ Holding the trailing side instead means a reversal is never worse than a symmetr
 
 It is a plain `Func<Task>` rather than an `EventCallback` on purpose: `EventCallback` calls `StateHasChanged` on the receiver after the handler returns, which on a page with a debounced search input re-renders the bound input with a stale value and clobbers in-flight keystrokes.
 
-## Coverage vs. @tanstack/virtual-core 3.19.8
+## Coverage vs. @tanstack/virtual-core 3.19.11
 
 **Complete.** Every `VirtualizerOptions` member is reachable, and every `Virtualizer` member that means something to a .NET caller is surfaced.
 
@@ -184,24 +184,20 @@ This is a real coupling: a virtual-core release could change them without it bei
 
 ## Stopgaps for upstream fixes
 
-Behaviour that belongs in virtual-core, carried here only until the upstream fix ships:
+Behaviour that belongs in virtual-core is carried here only until the upstream fix ships, and listed here with the upstream PR and the test that pins it. There are none in this release: the three that 3.19.8 carried - the Android touch-fling stop (https://github.com/TanStack/virtual/pull/1347), the negated `IsRtl` scroll write (https://github.com/TanStack/virtual/pull/1291) and the measurement refresh before `getOffsetForIndex` (https://github.com/TanStack/virtual/pull/1363) - shipped in virtual-core 3.19.9 and 3.19.11. Their tests stay, and now pin virtual-core's own behaviour.
 
-| Behaviour | Upstream | Stopgap |
-|---|---|---|
-| A `ScrollToIndex`, `ScrollToOffset`, `ScrollToEnd` or `ScrollBy` issued by code while a touch fling is still moving the list overshoots its target on Android: Chrome carries the fling on from the written position. virtual-core stops the fling first only on iOS 27. | https://github.com/TanStack/virtual/pull/1347 (issue https://github.com/TanStack/virtual/issues/1346) | `runScrollCommand` in `wwwroot/adaptive-virtualize-interop.js` hides the scroll axis's overflow for two frames before the write. Pinned by `ScrollToIndex_WhileATouchFlingIsMovingTheList_StopsTheMomentumBeforeWriting`. |
-| Scroll commands in a horizontal `IsRtl` list go nowhere: virtual-core reads `scrollLeft` negated, but writes the offset back positive, and a right-to-left container clamps that to its start. | https://github.com/TanStack/virtual/pull/1291 (issue https://github.com/TanStack/virtual/issues/1065) | `buildVirtualizerOptions` in `wwwroot/adaptive-virtualize-interop.js` wraps `scrollToFn` to negate the write. Pinned by `IsRtl_ScrollToIndex_BringsTheItemOnScreen`, which fails once virtual-core negates the write itself and this negates it a second time. |
-| `getOffsetForIndex` answers from the layout before the latest size change until something else reads the items. | https://github.com/TanStack/virtual/pull/1363 (issue https://github.com/TanStack/virtual/issues/1361) | `getOffsetForIndex`, `takeSnapshot` and `getSnapshot` call `refreshMeasurements()` first. The refresh before `getOffsetForIndex` goes with the fix; the others stay, because they cover this wrapper's own direct cache writes as well. Pinned by `GetOffsetForIndex_RightAfterARowAboveChanges_UsesTheSizesTheVirtualizerUses`. |
+⚠️ **Known virtual-core issue, carried without a stopgap: on a touchscreen laptop, a scroll command issued mid-fling can be lost.** With a classic scrollbar, one that takes layout space, a `ScrollToIndex`, `ScrollToOffset` or `ScrollToEnd` issued while a touch fling is still moving the list is dropped when the fling moves on after it and then stops - at the end of the list, or fading out. virtual-core cannot stop that fling, because hiding the scrollbar would reflow the list, so it holds the command until the fling ends. It then reads the fling's last speed as a finger having caught the fling and drops the command - a check written for iOS, where a finger that catches a fling fires no touch event; elsewhere it does. Phones are not affected: their overlay scrollbars let virtual-core stop the fling and write the command.
 
-⚠️ **Remove the stopgap together with the bump to the virtual-core release that contains the fix.** Until then it also runs on iOS, where it is not needed and costs its two frames, because telling the platforms apart would mean copying virtual-core's private user-agent checks.
+⚠️ **Remove a stopgap together with the bump to the virtual-core release that contains the fix.** Kept past it, a stopgap applies the fix a second time - the `IsRtl` negation would have sent every write back to the start.
 
 ## Vendored library provenance
 
 | | |
 |---|---|
-| Version | @tanstack/virtual-core 3.19.8 |
+| Version | @tanstack/virtual-core 3.19.11 |
 | File | `wwwroot/tanstack-virtual-core.js` |
-| Source | jsDelivr rollup bundle of npm `@tanstack/virtual-core@3.19.8` (`+esm`) |
-| SHA-256 | `52c91d57d1bf1bd22bea2c3a64cd4cfcceea1808b747cbfd3bbbc13ea0ca487a` |
+| Source | jsDelivr rollup bundle of npm `@tanstack/virtual-core@3.19.11` (`+esm`) |
+| SHA-256 | `a293372e09c2a90fb1d5d275e5ccd4ded1c65e1e78f3157ee1cce4b2a2e6b995` |
 
 ⚠️ **Deliberately the bundled build, not the npm tarball's `dist/esm/index.js`.**
 
