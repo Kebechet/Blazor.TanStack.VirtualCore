@@ -185,18 +185,18 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 var key = ItemKeyExtractor(item);
 
                 // If the row at this index has changed since the virtualizer emitted this virtualItem
-                // (e.g. a group expanded and inserted children), the virtualItem's start/size is stale
-                // for the new content. Rendering with the stale offset visibly misplaces the row until
-                // the next JS round-trip arrives with fresh positions - on slow JS interop (Android
-                // WebView) that gap is hundreds of ms, long enough to see rows land where other rows
-                // used to be. Skip the mismatched row so unchanged rows stay visible and changed rows
-                // go blank until JS catches up.
-                if (key != virtualItem.Key)
-                {
-                    continue;
-                }
-
-                _preparedRows.Add(new PreparedRow(key, virtualItem.Index, GetItemStyle(virtualItem), item));
+                // (e.g. a group expanded and inserted children, or a filter replaced the set), the
+                // virtualItem's start/size is stale for the new content. Painting at the stale offset
+                // visibly misplaces the row until the next JS round-trip arrives with fresh positions -
+                // on slow JS interop (Android WebView) that gap is hundreds of ms, long enough to see
+                // rows land where other rows used to be. So the row goes blank until JS catches up, but
+                // it is still rendered under its key: skipping it instead disposed every row component
+                // on each item-set change and built it again a round trip later, even for rows that
+                // are in both sets, and the new rows could not be measured until then either.
+                var style = key == virtualItem.Key
+                    ? GetItemStyle(virtualItem)
+                    : $"{GetItemStyle(virtualItem)}visibility:hidden;";
+                _preparedRows.Add(new PreparedRow(key, virtualItem.Index, style, item));
             }
 
             return _preparedRows;
