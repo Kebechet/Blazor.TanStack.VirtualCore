@@ -430,6 +430,52 @@ public sealed class InteropModuleTests
     }
 
     /// <summary>
+    /// An empty string is a valid item key, and the measure pass after a render tested keys for truthiness: a row keyed
+    /// "" that resized past the new count before its render landed kept its old size, like any key did before the
+    /// rows of a replaced set were read again.
+    /// </summary>
+    [Fact]
+    public async Task SetItems_ShrinkingSetAheadOfItsRender_RowWithAnEmptyKeyGetsItsNewSize()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sizes = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                const keys = Array.from({ length: 100 }, (_, index) => index === 2 ? '' : `row-${index}`);
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                list.rows.forEach((row, index) => row.setAttribute('data-key', keys[index]));
+                list.instance.measureRenderedRows();
+                // Measured by the ResizeObserver too, which records '' as measured like any key.
+                list.rows[2].style.height = '70px';
+                await nextFrame();
+                await nextFrame();
+
+                // The set ['', row-0] arrives ahead of its render; the '' row, still drawn at index 2, grows.
+                list.instance.setItems([2, 0], [], [], false);
+                list.rows[2].style.height = '300px';
+                await nextFrame();
+                await nextFrame();
+
+                list.rows[2].setAttribute('data-index', '0');
+                list.rows[0].setAttribute('data-index', '1');
+                list.rows[1].remove();
+                list.root.insertBefore(list.rows[2], list.rows[0]);
+                list.instance.measureRenderedRows();
+                const sizesOfRows = list.instance.takeSnapshot().map(x => `${x.key}=${x.size}`);
+
+                list.viewport.remove();
+                return sizesOfRows;
+            }");
+
+        // Assert
+        Assert.Equal(["=300", "row-0=80"], sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
     /// .NET renders a new item set one interop message before setItems brings it to JS, and Blazor moves keyed rows
     /// to their new index meanwhile. A row that resizes in that window carries an index this instance still holds
     /// for another item, and recording its size there left an exercise row with a section header's height. The size

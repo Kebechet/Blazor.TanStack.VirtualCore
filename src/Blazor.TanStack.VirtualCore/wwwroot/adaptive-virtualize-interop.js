@@ -503,7 +503,8 @@ class AdaptiveVirtualizeInstance {
 				const indexAttr = el.getAttribute(attribute);
 				const index = indexAttr !== null ? parseInt(indexAttr, 10) : -1;
 				const key = index >= 0 ? this.itemKeys[index] : undefined;
-				if (key &&
+				// An empty string is a valid key: compared to undefined, never tested for truthiness.
+				if (key !== undefined &&
 					this.keysToRemeasure.has(key) &&
 					el.getAttribute(KEY_ATTRIBUTE) === key &&
 					!this.virtualizer.options.useCachedMeasurements) {
@@ -511,11 +512,11 @@ class AdaptiveVirtualizeInstance {
 					this.remeasureRow(el, key, index);
 					return;
 				}
-				if (key && this.measuredKeys.has(key)) {
+				if (key !== undefined && this.measuredKeys.has(key)) {
 					return;
 				}
 				this.virtualizer.measureElement(el);
-				if (key) {
+				if (key !== undefined) {
 					this.measuredKeys.add(key);
 				}
 			});
