@@ -89,6 +89,10 @@ class AdaptiveVirtualizeInstance {
 		// Chrome. Skipping already-measured keys drops a scroll-time measure pass from 100-1000 ms
 		// to a few ms: only freshly virtualized items pay the cost.
 		this.measuredKeys = new Set();
+		// Keys of rows still drawn from the item set setItems replaced. Such a row can resize unseen before
+		// the render showing the new set lands - virtual-core drops a ResizeObserver entry whose index is
+		// past the item count - so the measure pass after that render reads these off the rows.
+		this.keysToRemeasure = new Set();
 
 		// What runScrollCommand needs to know about the user's input. Listened for on the window, so a
 		// tap on a button outside the list counts too - that tap is how a jump gets issued mid-fling.
@@ -187,7 +191,7 @@ class AdaptiveVirtualizeInstance {
 						if (instance.options.useCachedMeasurements) {
 							this.measuredKeys.delete(renderedKey);
 						} else {
-							this.setMeasuredSize(renderedKey, measureElement(element, entry, instance));
+							this.setMeasuredSize(renderedKey, measureElement(element, entry, instance), -1);
 						}
 						return instance.itemSizeCache.get(heldItem.key) ?? heldItem.size;
 					}
@@ -499,6 +503,14 @@ class AdaptiveVirtualizeInstance {
 				const indexAttr = el.getAttribute(attribute);
 				const index = indexAttr !== null ? parseInt(indexAttr, 10) : -1;
 				const key = index >= 0 ? this.itemKeys[index] : undefined;
+				if (key &&
+					this.keysToRemeasure.has(key) &&
+					el.getAttribute(KEY_ATTRIBUTE) === key &&
+					!this.virtualizer.options.useCachedMeasurements) {
+					this.keysToRemeasure.delete(key);
+					this.remeasureRow(el, key, index);
+					return;
+				}
 				if (key && this.measuredKeys.has(key)) {
 					return;
 				}
@@ -563,6 +575,17 @@ class AdaptiveVirtualizeInstance {
 				this.measuredKeys.delete(key);
 			}
 		}
+		for (const key of [...this.keysToRemeasure]) {
+			if (!newKeys.has(key)) {
+				this.keysToRemeasure.delete(key);
+			}
+		}
+		for (const row of this.rootElement.children) {
+			const key = row.getAttribute(KEY_ATTRIBUTE);
+			if (key !== null && newKeys.has(key) && this.indexOfCurrentRow(row) < 0) {
+				this.keysToRemeasure.add(key);
+			}
+		}
 
 		this.virtualizer.setOptions({
 			...this.virtualizer.options,
@@ -607,20 +630,49 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	/**
-	 * Writes a size read off a rendered row into virtual-core's cache under the row's own key, and moves
-	 * the rows when it changed. virtual-core answers a measurement without a ResizeObserver entry from
-	 * that cache, so a size that is not written there is not read off the row again.
+	 * Records a size read off a rendered row under the row's own key, and moves the rows when it changed.
+	 * virtual-core answers a measurement without a ResizeObserver entry from its cache, so a size that is
+	 * not recorded there is not read off the row again. index is the row's index in this instance's item
+	 * set, or -1 for a row still drawn from the set setItems replaced.
 	 */
-	setMeasuredSize(key, size) {
+	setMeasuredSize(key, size, index) {
 		this.measuredKeys.add(key);
+		if (!(this.virtualizer.itemSizeCache instanceof Map)) {
+			return;
+		}
+
+		if (index >= 0) {
+			// Through virtual-core, which also corrects the scroll offset when a row above the viewport
+			// changes size. It records nothing for a size equal to the estimate an unmeasured row is placed
+			// by, and setItems keeps only cached sizes, so that one is stored here.
+			this.refreshMeasurements();
+			this.virtualizer.resizeItem(index, size);
+			if (!this.virtualizer.itemSizeCache.has(key)) {
+				this.virtualizer.itemSizeCache.set(key, size);
+			}
+			return;
+		}
+
 		const cache = this.virtualizer.itemSizeCache;
-		if (!(cache instanceof Map) || cache.get(key) === size) {
+		if (cache.get(key) === size) {
 			return;
 		}
 
 		cache.set(key, size);
+		// virtual-core recomputes positions from the lowest index it saw change, and a resize of a later
+		// row earlier in the same ResizeObserver batch can have left that past this key's index.
+		this.virtualizer.pendingMin = 0;
 		this.virtualizer.itemSizeCacheVersion++;
 		this.notifyChange();
+	}
+
+	/**
+	 * Measures a rendered row of this instance's item set by reading the row, and has virtual-core
+	 * observe it from then on - its measureElement without a ResizeObserver entry answers from the cache.
+	 */
+	remeasureRow(row, key, index) {
+		this.virtualizer.measureElement(row);
+		this.setMeasuredSize(key, this.virtualizer.options.horizontal ? row.offsetWidth : row.offsetHeight, index);
 	}
 
 	/**
@@ -641,10 +693,7 @@ class AdaptiveVirtualizeInstance {
 			: [...this.rootElement.children]
 				.find(element => element.getAttribute(KEY_ATTRIBUTE) === key && this.indexOfCurrentRow(element) >= 0);
 		if (row) {
-			// Observed from here on, in case .NET rendered this element after the last measure pass.
-			this.virtualizer.measureElement(row);
-			// Read off the row itself: without a ResizeObserver entry virtual-core answers from the cache.
-			this.setMeasuredSize(key, this.virtualizer.options.horizontal ? row.offsetWidth : row.offsetHeight);
+			this.remeasureRow(row, key, this.indexOfCurrentRow(row));
 			return;
 		}
 

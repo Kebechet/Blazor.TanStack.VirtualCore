@@ -308,6 +308,128 @@ public sealed class InteropModuleTests
     }
 
     /// <summary>
+    /// virtual-core drops a ResizeObserver entry whose element's index is past the item count before it reaches
+    /// measureElement. When a set that shrinks arrives ahead of its render, a row kept from the old set but still
+    /// drawn at such an index can resize unseen, and the measure pass after the render skipped it as already
+    /// measured - leaving its old size, and the row overlapping its neighbours.
+    /// </summary>
+    [Fact]
+    public async Task SetItems_ShrinkingSetAheadOfItsRender_RowResizedPastTheNewCountGetsItsNewSize()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sizes = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+
+                // The set [row-2, row-0] arrives ahead of its render; row-2, still drawn at index 2, grows.
+                list.instance.setItems([2, 0], [], [], false);
+                list.rows[2].style.height = '300px';
+                await nextFrame();
+                await nextFrame();
+
+                // The render lands: row-2 at index 0, row-0 at index 1, row-1 gone.
+                list.rows[2].setAttribute('data-index', '0');
+                list.rows[0].setAttribute('data-index', '1');
+                list.rows[1].remove();
+                list.root.insertBefore(list.rows[2], list.rows[0]);
+                list.instance.measureRenderedRows();
+                const sizesOfRows = list.instance.takeSnapshot().map(x => `${x.key}=${x.size}`);
+
+                list.viewport.remove();
+                return sizesOfRows;
+            }");
+
+        // Assert
+        Assert.Equal(["row-2=300", "row-0=80"], sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// virtual-core corrects the scroll offset when a row above the viewport changes size, so the content on screen
+    /// stays put. A size written straight into its cache skipped that, and the later ResizeObserver delivery found
+    /// nothing left to change - the content jumped by the difference.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateItemSize_RowAboveTheViewportAlreadyGrown_KeepsTheContentInPlace()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var scrollTop = await _fixture.Page.EvaluateAsync<double>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+                list.viewport.scrollTop = 500;
+                await nextFrame();
+                await nextFrame();
+
+                // Row 0, scrolled out of view above, grows by 120px and is invalidated in the same task.
+                list.rows[0].style.height = '200px';
+                list.instance.invalidateItemSize('row-0');
+                await nextFrame();
+                await nextFrame();
+                const scrolledTo = list.viewport.scrollTop;
+
+                list.viewport.remove();
+                return scrolledTo;
+            }");
+
+        // Assert
+        Assert.Equal(620, scrollTop);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// virtual-core recomputes positions from the lowest index it saw change. A resize of a later row earlier in the
+    /// same ResizeObserver batch had set that past the index of a row from the replaced set, whose size was then
+    /// written under its own key - and the recompute never reached it, so the size and every position after it went
+    /// stale.
+    /// </summary>
+    [Fact]
+    public async Task ResizeObserver_RowOfTheReplacedSetAfterALaterRowInTheSameBatch_PositionsIncludeIt()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sizes = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+
+                // A new element for row-0, observed after row-2, so a batch reports row-2 first.
+                const row0 = document.createElement('div');
+                row0.setAttribute('data-index', '0');
+                row0.setAttribute('data-key', 'row-0');
+                row0.style.height = '80px';
+                list.root.replaceChild(row0, list.rows[0]);
+                list.instance.invalidateItemSize('row-0');
+
+                // The set [row-1, row-0, row-2, ...] arrives ahead of its render, then rows 2 and 0 grow in one frame.
+                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+                [keys[0], keys[1]] = [keys[1], keys[0]];
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                list.rows[2].style.height = '160px';
+                row0.style.height = '180px';
+                await nextFrame();
+                await nextFrame();
+                const sizesOfFirstRows = list.instance.takeSnapshot().slice(0, 3).map(x => `${x.key}=${x.size}@${x.start}`);
+
+                list.viewport.remove();
+                return sizesOfFirstRows;
+            }");
+
+        // Assert
+        Assert.Equal(["row-1=30@0", "row-0=180@30", "row-2=160@210"], sizes);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
     /// .NET renders a new item set one interop message before setItems brings it to JS, and Blazor moves keyed rows
     /// to their new index meanwhile. A row that resizes in that window carries an index this instance still holds
     /// for another item, and recording its size there left an exercise row with a section header's height. The size
