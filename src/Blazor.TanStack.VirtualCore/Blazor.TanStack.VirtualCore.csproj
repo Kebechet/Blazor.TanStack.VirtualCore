@@ -26,8 +26,12 @@
     <PackageIcon>icon.png</PackageIcon>
     <PackageTags>blazor;virtualization;virtual-scroll;tanstack;variable-height;list;performance</PackageTags>
     <!-- First three parts track the bundled @tanstack/virtual-core release; the fourth is this wrapper's own revision. -->
-    <Version>3.19.8.2</Version>
-    <PackageReleaseNotes>3.19.8.2: an Items change sends only what the JS side does not hold yet, and snapshots report current sizes.
+    <Version>3.19.8.3</Version>
+    <PackageReleaseNotes>3.19.8.3: rows keep their components across an Items change, and JS places them without waiting for .NET.
+
+A row whose placement went stale on an Items change used to be skipped, so every row component was disposed and built again one round trip later, even rows in both sets; it is now rendered under its own key and hidden until a matching placement arrives. Rows carry a data-key attribute, and the JS side moves every row whose key matches its own item set as soon as it knows the new layout - inside the ResizeObserver callback, before the frame is painted, and when setItems arrives, which also shows the rows .NET hid - instead of one interop round trip later through a .NET render. On a slow WebView bridge that removes the overlap below a row that grew and most of the blank after an insert. A size the ResizeObserver measured now survives the setItems that follows InvalidateItemSize, and a row rendered from an item set JS has not received yet no longer has its size recorded under another item's key.
+
+3.19.8.2: an Items change sends only what the JS side does not hold yet, and snapshots report current sizes.
 
 A change of Items used to send every key and size estimate across the interop bridge again; in a Blazor Hybrid app that is JSON copied through the WebView bridge per keystroke of a search. Both sides now keep a table of the pairs already sent, so a change travels as slot ids (runs packed into two numbers) plus only the new pairs, and an unchanged set sends nothing but a null order: for a 4,010-row search the setItems payload went from 293,225 to 21,170 characters. Per-key measurements survive a change as before. TakeSnapshot, GetOffsetForIndex, ScrollToIndex and GetSnapshot's StartIndex/EndIndex no longer read virtual-core state that lags after a ResizeObserver delivery or an InvalidateItemSize, so they report the sizes and range the virtualizer actually uses, and ScrollToIndex lands its first write on the target.
 
