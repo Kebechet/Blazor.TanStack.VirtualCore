@@ -101,10 +101,16 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     private readonly ItemSlotTable _itemSlots = new();
 
     /// <summary>
-    /// setItems calls sent ahead of the render that shows their item set, awaited by
+    /// setOptions and setItems calls sent ahead of the render that shows their change, awaited by
     /// <see cref="OnAfterRenderAsync"/> once that render is done.
     /// </summary>
-    private readonly List<Task> _itemSetSends = [];
+    private readonly List<Task> _sendsAheadOfRender = [];
+
+    /// <summary>
+    /// Whether an item set went out since <see cref="OnAfterRenderAsync"/> last ran, which makes it
+    /// measure the rendered rows whatever the window.
+    /// </summary>
+    private bool _hasItemSetChanged;
 
     private readonly List<PreparedRow> _preparedRows = [];
     private IReadOnlyList<VirtualItem>? _preparedFromVirtualItems;
@@ -247,7 +253,7 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
         // reach the DOM, and places and shows them before the frame is painted. Sent after the render
         // instead, it arrived a round trip later, and an Android WebView painted those rows hidden in
         // between - every row below an expanding group, for 50-220 ms on a Samsung A53.
-        SendItemSetIfChanged();
+        SendChangedParameters();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -308,20 +314,22 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
             return;
         }
 
-        // A set that changed while the instance was being created could not go out ahead of the render.
-        SendItemSetIfChanged();
-        var hasItemsChanged = _itemSetSends.Count > 0;
-        if (hasItemsChanged)
+        // What changed while the instance was being created could not go out ahead of the render.
+        SendChangedParameters();
+
+        // Taken BEFORE awaiting. The await yields, during which the virtualizer's measure()
+        // fires onChange -> OnVirtualItemsChanged -> StateHasChanged, queuing another render
+        // that re-enters OnAfterRenderAsync before this call returns. That re-entry must neither
+        // await the same sends again nor count them as a second item-set change.
+        var hasItemsChanged = _hasItemSetChanged;
+        _hasItemSetChanged = false;
+        var sends = _sendsAheadOfRender.ToArray();
+        _sendsAheadOfRender.Clear();
+        if (sends.Length > 0)
         {
-            // Taken BEFORE awaiting. The await yields, during which the virtualizer's measure()
-            // fires onChange -> OnVirtualItemsChanged -> StateHasChanged, queuing another render
-            // that re-enters OnAfterRenderAsync before this call returns. That re-entry must neither
-            // await the same sends again nor count them as a second item-set change.
-            var itemSetSends = _itemSetSends.ToArray();
-            _itemSetSends.Clear();
             try
             {
-                await Task.WhenAll(itemSetSends);
+                await Task.WhenAll(sends);
             }
             catch
             {
@@ -331,17 +339,6 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
 
             // The component can be disposed during any await here, and disposal releases the
             // instance. Every call this render made after that point would fail on the render path.
-            if (_isDisposed)
-            {
-                return;
-            }
-        }
-
-        if (!ReferenceEquals(_lastOptionsRef, Options))
-        {
-            _lastOptionsRef = Options;
-            await InvokeInstance("setOptions", Options);
-
             if (_isDisposed)
             {
                 return;
@@ -392,10 +389,11 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     /// <summary>
     /// Tells the virtualizer one item's size may change without its key changing - a group row
     /// toggling between collapsed and expanded is the usual case. A rendered item is measured as it is
-    /// rendered now and again as soon as its content changes; an item that is not rendered falls back
-    /// to the estimate for its key until it is measured.
+    /// rendered now and again as soon as its content changes. An item that is not rendered, and any
+    /// item under <see cref="VirtualizeOptions.UseCachedMeasurements"/>, which never reads a rendered
+    /// size, falls back to the estimate for its key until it is measured.
     /// </summary>
-    /// <remarks>Has no direct upstream equivalent: a rendered item is measured again, any other has its key evicted from the size cache.</remarks>
+    /// <remarks>Has no direct upstream equivalent.</remarks>
     public async Task InvalidateItemSize(string key)
     {
         await InvokeInstance("invalidateItemSize", key);
@@ -554,20 +552,34 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends <see cref="Items"/> to the JS side when the reference changed since the last send. The call
-    /// goes out before this returns; <see cref="OnAfterRenderAsync"/> awaits it.
+    /// Sends <see cref="Options"/> and <see cref="Items"/> to the JS side where the reference changed
+    /// since the last send, options first: setItems reacts to the item count and edge keys through
+    /// options such as FollowOnAppend. The calls go out before this returns;
+    /// <see cref="OnAfterRenderAsync"/> awaits them.
     /// </summary>
-    private void SendItemSetIfChanged()
+    private void SendChangedParameters()
     {
-        if (_jsInstance is null || ReferenceEquals(_lastItemsRef, Items))
+        if (_jsInstance is null)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(_lastOptionsRef, Options))
+        {
+            _lastOptionsRef = Options;
+            _sendsAheadOfRender.Add(InvokeInstance("setOptions", Options));
+        }
+
+        if (ReferenceEquals(_lastItemsRef, Items))
         {
             return;
         }
 
         _lastItemsRef = Items;
+        _hasItemSetChanged = true;
         BuildDescriptors();
         var itemSetUpdate = _itemSlots.Encode(_itemKeys, _itemSizes);
-        _itemSetSends.Add(InvokeInstance(
+        _sendsAheadOfRender.Add(InvokeInstance(
             "setItems",
             itemSetUpdate.Order,
             itemSetUpdate.NewKeys,
