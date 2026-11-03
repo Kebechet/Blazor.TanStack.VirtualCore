@@ -73,9 +73,9 @@ public sealed class SlowInteropTests
 
         // Assert
         Assert.Contains(frames, frame => frame.Rows.Any(row => row.IsChild && !row.IsHidden));
-        // One frame is allowed: the render that hides the moved rows can be painted before setItems reaches JS.
+        // setItems reaches JS ahead of the render that hides the moved rows, so none of them is ever painted hidden.
         var framesWithHiddenRows = frames.Count(frame => frame.Rows.Any(row => row.IsHidden));
-        Assert.True(framesWithHiddenRows <= 1, $"{framesWithHiddenRows} of {frames.Count} painted frames had hidden rows.");
+        Assert.True(framesWithHiddenRows == 0, $"{framesWithHiddenRows} of {frames.Count} painted frames had hidden rows.");
         AssertNoVisibleRowsOverlap(frames);
         _fixture.AssertNoJsErrors();
     }
