@@ -158,6 +158,44 @@ public sealed class InteropModuleTests
     }
 
     /// <summary>
+    /// .NET sends a new item set ahead of the render that shows it, so after InvalidateItemSize the set can arrive
+    /// while the row still shows its old content - a group about to expand. Falling back to the estimate there moved
+    /// every row below to where the estimate put them, around a row that had not changed yet, until that render
+    /// landed: on a phone, a gap that opened and closed again before the group grew.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateItemSize_RowOnScreen_KeepsTheSizeItIsRenderedAt()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var secondRowTransforms = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+
+                list.instance.invalidateItemSize('row-0');
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                const beforeTheRowGrows = list.rows[1].style.transform;
+
+                list.rows[0].style.height = '200px';
+                await nextFrame();
+                await nextFrame();
+                const afterTheRowGrew = list.rows[1].style.transform;
+
+                list.viewport.remove();
+                return [beforeTheRowGrows, afterTheRowGrew];
+            }");
+
+        // Assert
+        // Row 0 is rendered at 80px until its content changes; the estimate would have put row 1 at 50px.
+        Assert.Equal(["translateY(80px)", "translateY(200px)"], secondRowTransforms);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
     /// .NET renders a new item set one interop message before setItems brings it to JS, and Blazor moves keyed rows
     /// to their new index meanwhile. A row that resizes in that window carries an index this instance still holds
     /// for another item, and recording its size there left an exercise row with a section header's height.

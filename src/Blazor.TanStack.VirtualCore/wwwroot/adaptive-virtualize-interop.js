@@ -177,11 +177,11 @@ class AdaptiveVirtualizeInstance {
 					const index = Number(element.getAttribute(this.options.indexAttribute ?? 'data-index'));
 					const heldItem = instance.measurementsCache[index];
 					if (renderedKey !== null && heldItem && renderedKey !== this.itemKeys[index]) {
-						// The row was rendered from an item set this instance has not received yet, so its
-						// index still belongs to another item here, and virtual-core would record the size
+						// The row was rendered from an item set other than the one this instance holds, so its
+						// index belongs to another item here, and virtual-core would record the size
 						// under that item's key - the likely way an exercise row once ended up with a section
 						// header's 38px and overlapped the row below for good. Report the size already held
-						// instead, and leave the row to the measureRenderedRows that follows the coming setItems.
+						// instead, and leave the row to the measureRenderedRows that follows the next item-set render.
 						this.measuredKeys.delete(renderedKey);
 						return instance.itemSizeCache.get(heldItem.key) ?? heldItem.size;
 					}
@@ -439,7 +439,8 @@ class AdaptiveVirtualizeInstance {
 
 	/**
 	 * The index of a rendered row, or -1 when the key it renders is not the key this instance holds for
-	 * that index: .NET renders a new item set one interop call before setItems brings it here.
+	 * that index: the row is from another item set - the one setItems has just replaced, until the render
+	 * showing the new one lands, or a newer one when the set changed while the instance was being created.
 	 */
 	indexOfCurrentRow(row) {
 		const indexText = row.getAttribute(this.options.indexAttribute ?? 'data-index');
@@ -600,11 +601,25 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	/**
-	 * Drops the cached measurement for one key. Used when an item's content changed shape while its
-	 * key stayed the same (a group toggling collapsed/expanded changes its size by 100+px without
-	 * changing identity). Without this, setItems would preserve the now-stale measurement.
+	 * Called when an item's content is about to change shape while its key stays the same (a group
+	 * toggling collapsed/expanded changes its size by 100+px without changing identity), so that
+	 * setItems does not preserve a measurement that is about to go stale.
+	 *
+	 * A row on screen is measured as it is rendered right now rather than dropped: .NET sends the item
+	 * set ahead of the render that shows the change, and falling back to the estimate there moved every
+	 * row below to where the estimate put them, around a row that had not changed yet. virtual-core's
+	 * ResizeObserver measures the row again the moment its content does change. A row that is not
+	 * rendered has nothing to measure, so its size is dropped and the estimate stands in until it is.
 	 */
 	invalidateItemSize(key) {
+		const row = [...this.rootElement.children]
+			.find(element => element.getAttribute(KEY_ATTRIBUTE) === key && this.indexOfCurrentRow(element) >= 0);
+		if (row) {
+			this.virtualizer.measureElement(row);
+			this.measuredKeys.add(key);
+			return;
+		}
+
 		this.measuredKeys.delete(key);
 		if (this.virtualizer.itemSizeCache instanceof Map) {
 			this.virtualizer.itemSizeCache.delete(key);
