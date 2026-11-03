@@ -351,8 +351,9 @@ public sealed class OptionCoverageTests
         var rail = await ReadRtlRailAsync(targetIndex: 500);
 
         // Assert
-        // virtual-core reads the offset negated under isRtl but writes it as is, and a positive
-        // scrollLeft in a right-to-left container clamps to the start - the jump would go nowhere.
+        // A positive scrollLeft in a right-to-left container clamps to the start, so the write has to
+        // be negated exactly once - virtual-core does it since 3.19.11, and negating it here as well
+        // would send the jump back to the start.
         Assert.True(rail.TargetVisible, $"Expected item 500 on screen; the rendered window is {rail.FirstIndex}-{rail.LastIndex}.");
         _fixture.AssertNoJsErrors();
     }

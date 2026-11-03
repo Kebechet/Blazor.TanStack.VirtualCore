@@ -47,8 +47,6 @@ function compact(source) {
 	return result;
 }
 
-const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
-
 /**
  * The key of the item a row renders. Contract with AdaptiveVirtualize.razor, which writes it on every
  * row; syncRenderedRows and the resize measurement read it to tell whether a row belongs to the item
@@ -93,22 +91,6 @@ class AdaptiveVirtualizeInstance {
 		// the render showing the new set lands - virtual-core drops a ResizeObserver entry whose index is
 		// past the item count - so the measure pass after that render reads these off the rows.
 		this.keysToRemeasure = new Set();
-
-		// What runScrollCommand needs to know about the user's input. Listened for on the window, so a
-		// tap on a button outside the list counts too - that tap is how a jump gets issued mid-fling.
-		this.touchActive = false;
-		this.lastInputWasTouch = false;
-		this.momentumStop = null;
-		this.inputListeners = {
-			pointerdown: event => { this.lastInputWasTouch = event.pointerType === 'touch'; },
-			wheel: () => { this.lastInputWasTouch = false; },
-			touchstart: () => { this.touchActive = true; },
-			touchend: () => { this.touchActive = false; },
-			touchcancel: () => { this.touchActive = false; },
-		};
-		for (const [type, listener] of Object.entries(this.inputListeners)) {
-			window.addEventListener(type, listener, { capture: true, passive: true });
-		}
 
 		this.virtualizer = new Virtualizer(this.buildVirtualizerOptions());
 
@@ -221,16 +203,6 @@ class AdaptiveVirtualizeInstance {
 				callback(rect);
 			});
 			resolved.scrollToFn = elementScroll;
-		}
-
-		// virtual-core negates scrollLeft when it reads the offset under isRtl, but writes the offset
-		// back as is - and in a right-to-left container scrollLeft runs from 0 down to negative
-		// values, so a positive write clamps to the start and every scroll command goes nowhere.
-		// Negating it on the way out matches the read.
-		if (passThrough.isRtl && passThrough.horizontal) {
-			const write = resolved.scrollToFn;
-			resolved.scrollToFn = (offset, { adjustments = 0, behavior }, instance) =>
-				write(-(offset + adjustments), { behavior }, instance);
 		}
 
 		// Enums cross interop as their C# names; virtual-core wants its own lowercase literals.
@@ -706,76 +678,19 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	scrollToIndex(index, align, behavior) {
-		return this.runScrollCommand(() => {
-			// virtual-core aims the write through getOffsetForIndex, which reads measurementsCache.
-			this.refreshMeasurements();
-			this.virtualizer.scrollToIndex(index, { align, behavior });
-		});
+		this.virtualizer.scrollToIndex(index, { align, behavior });
 	}
 
 	scrollToOffset(offset, align, behavior) {
-		return this.runScrollCommand(() => this.virtualizer.scrollToOffset(offset, { align, behavior }));
+		this.virtualizer.scrollToOffset(offset, { align, behavior });
 	}
 
 	scrollToEnd(behavior) {
-		return this.runScrollCommand(() => this.virtualizer.scrollToEnd({ behavior }));
+		this.virtualizer.scrollToEnd({ behavior });
 	}
 
 	scrollBy(delta, behavior) {
-		return this.runScrollCommand(() => this.virtualizer.scrollBy(delta, { behavior }));
-	}
-
-	/**
-	 * Runs a scroll command, first stopping a touch fling that is still moving the list. Android
-	 * Chrome carries a fling on after a programmatic scroll write, so a jump issued mid-fling lands
-	 * wherever the momentum takes it instead of on its target. virtual-core stops a fling before a
-	 * command only on iOS 27; this stands in for the rest until
-	 * https://github.com/TanStack/virtual/pull/1347 ships, and goes away with it.
-	 *
-	 * Hiding the scroll axis's overflow for two frames is what stops the momentum - the same trick
-	 * virtual-core uses on iOS 27. It runs on iOS too, where it is not needed (before 27 the write
-	 * stops the fling itself, and on 27 virtual-core does) and costs those two frames: telling the
-	 * platforms apart would take copying virtual-core's private user-agent checks. Its own
-	 * _stopMomentum is not reused: it is private, and it drops the callback of a command superseded
-	 * mid-stop, which would leave that command's caller awaiting forever. Without a touch there is
-	 * no fling to stop, and on a desktop hiding the overflow would also hide a classic scrollbar and
-	 * reflow the list, so the write goes out at once.
-	 */
-	async runScrollCommand(command) {
-		const isTouchFling = this.lastInputWasTouch && !this.touchActive
-			&& this.virtualizer.isScrolling === true;
-		if (isTouchFling) {
-			// Shared by every command issued during the same stop, so none of them reads back the
-			// "hidden" another one set as the value to restore.
-			this.momentumStop ??= this.stopMomentum()?.finally(() => { this.momentumStop = null; }) ?? null;
-			if (this.momentumStop) {
-				await this.momentumStop;
-				if (!this.cleanupMount) {
-					return;
-				}
-			}
-		}
-
-		command();
-	}
-
-	/** Hides the scroll axis's overflow for two frames; null when it had to be put back at once. */
-	stopMomentum() {
-		const element = this.isWindowScroller ? this.findScrollContainer(this.rootElement) : this.scrollContainer;
-		const property = this.options.horizontal ? 'overflow-x' : 'overflow-y';
-		const { style } = element;
-		const value = style.getPropertyValue(property);
-		const priority = style.getPropertyPriority(property);
-		const crossSize = () => this.options.horizontal ? element.clientHeight : element.clientWidth;
-		const crossSizeBefore = crossSize();
-		style.setProperty(property, 'hidden', 'important');
-		// A classic scrollbar takes layout space, so hiding it would reflow the list for two frames
-		// (a touchscreen laptop). Put it back before anything paints and write at once, as before.
-		if (crossSize() !== crossSizeBefore) {
-			style.setProperty(property, value, priority);
-			return null;
-		}
-		return nextFrame().then(nextFrame).then(() => style.setProperty(property, value, priority));
+		this.virtualizer.scrollBy(delta, { behavior });
 	}
 
 	cancelScroll() {
@@ -801,8 +716,6 @@ class AdaptiveVirtualizeInstance {
 	}
 
 	getOffsetForIndex(index, align) {
-		// virtual-core computes the offset from measurementsCache.
-		this.refreshMeasurements();
 		// Upstream returns [offset, alignment]; only the offset is meaningful to a caller.
 		const result = this.virtualizer.getOffsetForIndex(index, align);
 		return Array.isArray(result) ? result[0] : result;
@@ -863,9 +776,6 @@ class AdaptiveVirtualizeInstance {
 		this.containerObserver?.disconnect();
 		this.rowObserver?.disconnect();
 		clearTimeout(this.pendingNotification);
-		for (const [type, listener] of Object.entries(this.inputListeners)) {
-			window.removeEventListener(type, listener, { capture: true });
-		}
 		if (this.cleanupMount) {
 			try {
 				this.cleanupMount();
