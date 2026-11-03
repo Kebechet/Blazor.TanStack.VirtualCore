@@ -140,6 +140,31 @@ public class AdaptiveVirtualizeTests
 	}
 
 	/// <summary>
+	/// The JS side moves and shows a row before .NET answers only when the key the row renders is the
+	/// key it holds for that index, so a hidden row has to carry the key of the item it actually renders,
+	/// not the key of the stale placement it was drawn from.
+	/// </summary>
+	[Fact]
+	public void Render_KeyMismatchBetweenPlacementAndItem_RowCarriesTheItemKey()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var component = RenderWith(context, ["a", "b"]);
+
+		// Act
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "a" },
+				new VirtualItem { Index = 1, Start = 10, Size = 10, End = 20, Key = "stale-key" },
+			],
+			totalSize: 20)).Wait();
+
+		// Assert
+		component.Find("[data-index='0']").GetAttribute("data-key").ShouldBe("a");
+		component.Find("[data-index='1']").GetAttribute("data-key").ShouldBe("b");
+	}
+
+	/// <summary>
 	/// A filter or an inserted row changes the item set, and until JS sends fresh placements every
 	/// index can carry a different key. Skipping those rows rendered none, so every row component -
 	/// its videos, images and JS state - was disposed and built again one round trip later, even the

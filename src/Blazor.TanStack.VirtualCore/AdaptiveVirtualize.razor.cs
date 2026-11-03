@@ -193,6 +193,8 @@ public partial class AdaptiveVirtualize<TItem> : IAsyncDisposable
                 // it is still rendered under its key: skipping it instead disposed every row component
                 // on each item-set change and built it again a round trip later, even for rows that
                 // are in both sets, and the new rows could not be measured until then either.
+                // JS catches up as soon as setItems reaches it, not a round trip later: it places and
+                // shows every row whose data-key matches its new set (syncRenderedRows).
                 var style = key == virtualItem.Key
                     ? GetItemStyle(virtualItem)
                     : $"{GetItemStyle(virtualItem)}visibility:hidden;";

@@ -121,6 +121,86 @@ public sealed class InteropModuleTests
         _fixture.AssertNoJsErrors();
     }
 
+    /// <summary>
+    /// A group expanding calls InvalidateItemSize, renders the grown row, and only then sends the new item set - in
+    /// the app a separate interop message, which the ResizeObserver measuring the grown row gets ahead of. setItems
+    /// keeps only sizes it knows to be measured, and dropping that one put every row below back on the estimate
+    /// until the next measureRenderedRows, half a round trip later: on a phone, long enough to see them overlap.
+    /// </summary>
+    [Fact]
+    public async Task SetItems_AfterAResizeObserverMeasuredAnInvalidatedRow_KeepsItsNewSize()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var secondRowTransform = await _fixture.Page.EvaluateAsync<string>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+                list.instance.invalidateItemSize('row-0');
+                list.rows[0].style.height = '200px';
+                await nextFrame();
+                await nextFrame();
+
+                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                const transform = list.rows[1].style.transform;
+
+                list.viewport.remove();
+                return transform;
+            }");
+
+        // Assert
+        // The estimate would have put row 1 at 50px.
+        Assert.Equal("translateY(200px)", secondRowTransform);
+        _fixture.AssertNoJsErrors();
+    }
+
+    /// <summary>
+    /// .NET renders a new item set one interop message before setItems brings it to JS, and Blazor moves keyed rows
+    /// to their new index meanwhile. A row that resizes in that window carries an index this instance still holds
+    /// for another item, and recording its size there left an exercise row with a section header's height.
+    /// </summary>
+    [Fact]
+    public async Task ResizeObserver_RowFromANewerItemSet_IsMeasuredOnlyUnderItsOwnKey()
+    {
+        // Arrange
+        await _fixture.NavigateToStoryAsync(_story);
+
+        // Act
+        var sizes = await _fixture.Page.EvaluateAsync<string[]>(
+            "async () => {" + _mountScript + _measuredRowsScript + @"
+                const list = await mountMeasured(100, {});
+                list.rows.forEach((row, index) => row.setAttribute('data-key', `row-${index}`));
+                const sizesOfFirstRows = () => list.instance.takeSnapshot().slice(0, 3).map(x => `${x.key}=${x.size}`);
+
+                // The set [row-0, row-2, row-1, ...] as .NET renders it: row-2's element moves to index 1,
+                // which this instance still holds for row-1, and grows there.
+                list.rows[1].setAttribute('data-index', '2');
+                list.rows[2].setAttribute('data-index', '1');
+                list.root.insertBefore(list.rows[2], list.rows[1]);
+                list.rows[2].style.height = '300px';
+                await nextFrame();
+                await nextFrame();
+                const beforeSetItems = sizesOfFirstRows();
+
+                const keys = Array.from({ length: 100 }, (_, index) => `row-${index}`);
+                [keys[1], keys[2]] = [keys[2], keys[1]];
+                list.instance.setItems(keys.map((_, index) => index), keys, keys.map(() => 50), true);
+                list.instance.measureRenderedRows();
+                const afterSetItems = sizesOfFirstRows();
+
+                list.viewport.remove();
+                return [...beforeSetItems, ...afterSetItems];
+            }");
+
+        // Assert
+        Assert.Equal(["row-0=80", "row-1=30", "row-2=60"], sizes[..3]);
+        Assert.Equal(["row-0=80", "row-2=300", "row-1=30"], sizes[3..]);
+        _fixture.AssertNoJsErrors();
+    }
+
     [Fact]
     public async Task DirectionalOverscan_WithLanes_BuffersWholeRows()
     {
