@@ -49,6 +49,18 @@ function compact(source) {
 
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
 
+/**
+ * The key of the item a row renders. Contract with AdaptiveVirtualize.razor, which writes it on every
+ * row; syncRenderedRows and the resize measurement read it to tell whether a row belongs to the item
+ * set this instance holds.
+ */
+const KEY_ATTRIBUTE = 'data-key';
+
+/** Mirrors ToCss on the .NET side, so a row placed from either side carries the same value. */
+function toCssNumber(value) {
+	return Number(value.toFixed(4));
+}
+
 class AdaptiveVirtualizeInstance {
 	// Keys and sizes arrive as two parallel arrays rather than one array of objects: this covers the
 	// WHOLE item set, not just the rendered window, and it crosses the interop boundary as JSON. For
@@ -111,6 +123,24 @@ class AdaptiveVirtualizeInstance {
 			: null;
 		this.containerObserver?.observe(rootElement);
 
+		// A .NET render can still be carrying placements older than the ones syncRenderedRows has
+		// already applied, and writing them would move the rows back until the next round trip. The
+		// observer runs before the browser paints, so the stale value is never seen. Its own writes
+		// come back here too and change nothing the second time.
+		this.rowObserver = typeof MutationObserver === 'function'
+			? new MutationObserver(records => {
+				if (records.some(record => record.target === rootElement || record.target.parentElement === rootElement)) {
+					this.syncRenderedRows();
+				}
+			})
+			: null;
+		this.rowObserver?.observe(rootElement, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: ['style', this.options.indexAttribute ?? 'data-index', KEY_ATTRIBUTE],
+		});
+
 		this.notifyChange();
 	}
 
@@ -143,6 +173,25 @@ class AdaptiveVirtualizeInstance {
 			measureElement: (element, entry, instance) => {
 				if (entry) {
 					this.markInsideResizeObserver();
+					const renderedKey = element.getAttribute(KEY_ATTRIBUTE);
+					const index = Number(element.getAttribute(this.options.indexAttribute ?? 'data-index'));
+					const heldItem = instance.measurementsCache[index];
+					if (renderedKey !== null && heldItem && renderedKey !== this.itemKeys[index]) {
+						// The row was rendered from an item set this instance has not received yet, so its
+						// index still belongs to another item here, and virtual-core would record the size
+						// under that item's key - the likely way an exercise row once ended up with a section
+						// header's 38px and overlapped the row below for good. Report the size already held
+						// instead, and leave the row to the measureRenderedRows that follows the coming setItems.
+						this.measuredKeys.delete(renderedKey);
+						return instance.itemSizeCache.get(heldItem.key) ?? heldItem.size;
+					}
+					// A ResizeObserver measurement is as fresh as one from measureRenderedRows, and setItems
+					// keeps only the sizes of keys recorded as measured. Without this, a row that grew right
+					// after InvalidateItemSize - a group expanding - lost its new size to the next setItems
+					// and fell back to the estimate until measureRenderedRows ran, half a round trip later.
+					if (renderedKey !== null && renderedKey === this.itemKeys[index]) {
+						this.measuredKeys.add(renderedKey);
+					}
 				}
 				return measureElement(element, entry, instance);
 			},
@@ -310,6 +359,8 @@ class AdaptiveVirtualizeInstance {
 			return;
 		}
 
+		this.syncRenderedRows();
+
 		if (this.insideResizeObserver) {
 			if (this.pendingNotification === null) {
 				this.pendingNotification = setTimeout(() => {
@@ -334,6 +385,73 @@ class AdaptiveVirtualizeInstance {
 		this.lastTotalSize = totalSize;
 
 		this.dotNetRef.invokeMethodAsync('OnVirtualItemsChanged', virtualItems.map(toPayload), totalSize);
+	}
+
+	/**
+	 * Moves the rendered rows to where the virtualizer now places them, without waiting for .NET.
+	 *
+	 * Placements otherwise reach the DOM only through a .NET render, one interop round trip after the
+	 * virtualizer computed them - ~250 ms on a mid-range Android phone (Samsung A53). For that long a
+	 * row that grew paints over the rows below it, and after an item-set change every row whose index
+	 * moved stays hidden. The virtualizer learns a new size inside the ResizeObserver callback, before
+	 * the frame is painted, so moving the rows here shows them in place in the very frame the row grew.
+	 *
+	 * A row is touched only when the key it renders is the key the virtualizer holds for its index.
+	 * A row .NET drew from an item set this instance has not received yet is left as .NET drew it, and
+	 * so is one .NET hid - until setItems brings the set it belongs to, which is also when it is shown.
+	 * Only the transform and the cross-axis offset change, neither of which resizes the row, so this
+	 * cannot set off another resize observation. The container's size is left to .NET: resizing it
+	 * from inside the callback would.
+	 */
+	syncRenderedRows() {
+		const { horizontal, isRtl } = this.virtualizer.options;
+		const lanes = Math.max(this.virtualizer.options.lanes ?? 1, 1);
+		const measurements = this.virtualizer.getMeasurements();
+
+		for (const row of this.rootElement.children) {
+			const index = this.indexOfCurrentRow(row);
+			const measurement = measurements[index];
+			if (!measurement) {
+				continue;
+			}
+
+			const start = toCssNumber(measurement.start);
+			const transform = horizontal
+				? `translateX(${isRtl ? '-' : ''}${start}px)`
+				: `translateY(${start}px)`;
+			if (row.style.transform !== transform) {
+				row.style.transform = transform;
+			}
+
+			if (lanes > 1) {
+				const crossStart = `${toCssNumber((measurement.lane ?? 0) * (100 / lanes))}%`;
+				const crossProperty = horizontal ? 'top' : 'left';
+				if (row.style[crossProperty] !== crossStart) {
+					row.style[crossProperty] = crossStart;
+				}
+			}
+
+			if (row.style.visibility === 'hidden') {
+				row.style.visibility = '';
+			}
+		}
+	}
+
+	/**
+	 * The index of a rendered row, or -1 when the key it renders is not the key this instance holds for
+	 * that index: .NET renders a new item set one interop call before setItems brings it here.
+	 */
+	indexOfCurrentRow(row) {
+		const indexText = row.getAttribute(this.options.indexAttribute ?? 'data-index');
+		const key = row.getAttribute(KEY_ATTRIBUTE);
+		if (indexText === null || key === null) {
+			return -1;
+		}
+
+		const index = Number(indexText);
+		return this.itemKeys[index] === key
+			? index
+			: -1;
 	}
 
 	areVirtualItemsEqual(a, b) {
@@ -650,6 +768,7 @@ class AdaptiveVirtualizeInstance {
 
 	dispose() {
 		this.containerObserver?.disconnect();
+		this.rowObserver?.disconnect();
 		clearTimeout(this.pendingNotification);
 		for (const [type, listener] of Object.entries(this.inputListeners)) {
 			window.removeEventListener(type, listener, { capture: true });

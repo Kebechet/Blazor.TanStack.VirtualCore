@@ -96,7 +96,7 @@ public class AdaptiveVirtualizeTests
 	}
 
 	[Fact]
-	public void Render_KeyMismatchBetweenPlacementAndItem_SkipsThatRow()
+	public void Render_KeyMismatchBetweenPlacementAndItem_RendersThatRowHidden()
 	{
 		// Arrange
 		using var context = CreateContext();
@@ -113,9 +113,116 @@ public class AdaptiveVirtualizeTests
 			totalSize: 20)).Wait();
 
 		// Assert
-		// Rendering the stale placement would visibly misplace the row until the next JS round-trip.
-		component.Markup.ShouldContain(">a<");
-		component.Markup.ShouldNotContain(">b<");
+		// Painting the stale placement would visibly misplace the row until the next JS round-trip,
+		// so it is rendered - its component exists and can be measured - but not shown.
+		component.Find("[data-index='0']").GetAttribute("style").ShouldNotContain("visibility:hidden");
+		component.Find("[data-index='1']").GetAttribute("style").ShouldContain("visibility:hidden");
+		component.Find("[data-index='1']").TextContent.ShouldBe("b");
+	}
+
+	[Fact]
+	public void Render_FreshPlacementForAHiddenRow_ShowsIt()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var component = RenderWith(context, ["a", "b"]);
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "stale-key" }],
+			totalSize: 10)).Wait();
+
+		// Act
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "a" }],
+			totalSize: 10)).Wait();
+
+		// Assert
+		component.Find("[data-index='0']").GetAttribute("style").ShouldNotContain("visibility:hidden");
+	}
+
+	/// <summary>
+	/// The JS side moves and shows a row before .NET answers only when the key the row renders is the
+	/// key it holds for that index, so a hidden row has to carry the key of the item it actually renders,
+	/// not the key of the stale placement it was drawn from.
+	/// </summary>
+	[Fact]
+	public void Render_KeyMismatchBetweenPlacementAndItem_RowCarriesTheItemKey()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var component = RenderWith(context, ["a", "b"]);
+
+		// Act
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "a" },
+				new VirtualItem { Index = 1, Start = 10, Size = 10, End = 20, Key = "stale-key" },
+			],
+			totalSize: 20)).Wait();
+
+		// Assert
+		component.Find("[data-index='0']").GetAttribute("data-key").ShouldBe("a");
+		component.Find("[data-index='1']").GetAttribute("data-key").ShouldBe("b");
+	}
+
+	/// <summary>
+	/// A filter or an inserted row changes the item set, and until JS sends fresh placements every
+	/// index can carry a different key. Skipping those rows rendered none, so every row component -
+	/// its videos, images and JS state - was disposed and built again one round trip later, even the
+	/// rows that were in both sets. On an Android WebView that was ~350 components per keystroke.
+	/// </summary>
+	[Fact]
+	public void ItemsChange_RowWhoseKeyStays_KeepsItsComponent()
+	{
+		// Arrange
+		using var context = CreateContext();
+		var initializedCount = new InitializedCount();
+		var component = context.RenderComponent<AdaptiveVirtualize<string>>(parameters => parameters
+			.Add(p => p.Items, ["a", "b", "c"])
+			.Add(p => p.ItemKeyExtractor, (Func<string, string>) (x => x))
+			.Add(p => p.ItemContent, (RenderFragment<string>) (item => builder =>
+			{
+				builder.OpenComponent<InitializationCountingRow>(0);
+				builder.AddAttribute(1, nameof(InitializationCountingRow.Count), initializedCount);
+				builder.CloseComponent();
+			})));
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "a" },
+				new VirtualItem { Index = 1, Start = 10, Size = 10, End = 20, Key = "b" },
+				new VirtualItem { Index = 2, Start = 20, Size = 10, End = 30, Key = "c" },
+			],
+			totalSize: 30)).Wait();
+		var initializedBeforeChange = initializedCount.Value;
+
+		// Act
+		// "a" filtered out: "b" and "c" move up one index each, so the placements JS last sent no
+		// longer match any of them until it sends the next ones.
+		component.SetParametersAndRender(parameters => parameters.Add(p => p.Items, ["b", "c"]));
+		component.InvokeAsync(() => component.Instance.OnVirtualItemsChanged(
+			[
+				new VirtualItem { Index = 0, Start = 0, Size = 10, End = 10, Key = "b" },
+				new VirtualItem { Index = 1, Start = 10, Size = 10, End = 20, Key = "c" },
+			],
+			totalSize: 20)).Wait();
+
+		// Assert
+		initializedBeforeChange.ShouldBe(3);
+		initializedCount.Value.ShouldBe(3);
+	}
+
+	private sealed class InitializedCount
+	{
+		public int Value { get; set; }
+	}
+
+	private sealed class InitializationCountingRow : ComponentBase
+	{
+		[Parameter] public InitializedCount Count { get; set; } = null!;
+
+		protected override void OnInitialized()
+		{
+			Count.Value++;
+		}
 	}
 
 	[Fact]

@@ -8,8 +8,11 @@
 <div @ref="_rootElement" style="@_containerStyle">
     @foreach (var row in _rowsToRender)
     {
+        @* data-key is how the JS side recognises a row it may move before this render catches up -
+           see syncRenderedRows in adaptive-virtualize-interop.js. *@
         <div @key="row.Key"
              data-index="@row.Index"
+             data-key="@row.Key"
              style="@row.Style">
             @ItemContent(row.Item)
         </div>
